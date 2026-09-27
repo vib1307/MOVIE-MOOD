@@ -209,6 +209,12 @@ gradio-app, .gradio-container { background: transparent !important; }
 .gradio-container .main.fillable { padding: 0 !important; }
 footer { opacity: 0.4; }
 @media (max-width: 640px) { .gradio-container { padding: 0 24px 32px !important; } }
+/* Toasts (gr.Warning): Gradio paints them near-white while the theme's text is light,
+   so the message was white on white. Put them on the dark surface instead. */
+.toast-body { background: #232532 !important; border: 1px solid #3f424d !important; color: #e9e9ed !important; }
+.toast-body .toast-message-text, .toast-body .toast-title, .toast-body .toast-close { color: #e9e9ed !important; }
+.toast-body.warning .toast-title { color: #fbbf24 !important; }
+.toast-body.error .toast-title { color: #f87171 !important; }
 </style>"""
 
 
@@ -369,7 +375,10 @@ def build_ui() -> gr.Blocks:
         private = {"api_visibility": "undocumented"}
 
         def to_results(text: str):
-            # Home -> Suggestions: hide the hero and chips (the design's results screen has neither)
+            # Home -> Suggestions: hide the hero and chips (the design's results screen has neither).
+            # Not for a too-short query: that only shows a warning, so stay on Home.
+            if len((text or "").strip()) < MIN_QUERY:
+                return text, gr.update(), gr.update()
             return text, gr.update(visible=False), gr.update(visible=False)
 
         def wire(event):

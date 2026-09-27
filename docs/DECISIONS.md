@@ -366,6 +366,13 @@ Latency is ~7–9s on the Mac.
 
 ---
 
+## D-029 · Phase 7 · UI fixes: invisible warning toast, short query stays on Home
+- **Bug (user):** the `gr.Warning` toast (e.g. for "hi") showed white text on a near-white box (`rgb(250,250,250)`). Our theme's light text color applied, but Gradio kept the toast's own light background. Fix in `HEAD` CSS: `.toast-body` gets the Nocturne surface `#232532` with border `#3f424d` and text `#e9e9ed`. Warning titles are amber, error titles red. Checked with computed styles in Chrome.
+- **Bug (found while testing):** a too-short query hid the hero and chips, leaving an empty page with no way back but a reload. `to_results` now only switches to the Suggestions screen for queries of `MIN_QUERY`+ characters.
+- Testing note: in a background automation tab (`visibilityState: hidden`), Gradio's toast fade-in stalls at low opacity. Real, focused tabs aren't affected.
+
+---
+
 ## Open questions
 - ~~**Recency skew**~~: resolved by D-010.
 - **Phase 2 ranking test (first run, 20 movies), `scripts/try_blobs.py`:**
