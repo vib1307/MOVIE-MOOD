@@ -12,6 +12,7 @@ Files in this folder:
 | File | Goes to |
 |---|---|
 | `setup.sh` | run once (and again after changes) as root from `/opt/moviemood` |
+| `traffic.sh` | traffic numbers from the nginx logs (run on the server) |
 | `moviemood.service` | `/etc/systemd/system/moviemood.service` |
 | `ollama.override.conf` | `/etc/systemd/system/ollama.service.d/override.conf` |
 | `nginx-moviemood.conf` | `/etc/nginx/sites-available/moviemood` (DOMAIN filled in) |
@@ -92,6 +93,8 @@ Renewal is automatic (`systemctl list-timers | grep certbot`).
 | Task | Command |
 |---|---|
 | Deploy new code | `cd /opt/moviemood && git pull && sudo bash deploy/setup.sh moviemood.duckdns.org && sudo systemctl restart moviemood` (setup.sh re-syncs deps, units and nginx; models already pulled are skipped fast) |
+| Traffic per day | `sudo bash deploy/traffic.sh` (last 7 days) or `... traffic.sh 30` |
+| Traffic dashboard | `sudo bash deploy/traffic.sh --report`, then on the laptop `scp root@<IP>:/tmp/moviemood-report.html . && open moviemood-report.html` |
 | App logs | `journalctl -u moviemood -f` |
 | Ollama logs | `journalctl -u ollama -f` |
 | nginx logs | `tail -f /var/log/nginx/access.log /var/log/nginx/error.log` |

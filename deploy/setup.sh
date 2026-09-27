@@ -23,7 +23,7 @@ say() { printf '\n\033[1;35m==> %s\033[0m\n' "$*"; }
 
 say "System packages"
 apt-get update -q
-DEBIAN_FRONTEND=noninteractive apt-get install -y -q nginx certbot python3-certbot-nginx git curl rsync ufw
+DEBIAN_FRONTEND=noninteractive apt-get install -y -q nginx certbot python3-certbot-nginx git curl rsync ufw goaccess  # goaccess: deploy/traffic.sh --report
 
 say "App user $APP_USER"
 id "$APP_USER" &>/dev/null || useradd --system --home "$APP_DIR" --shell /usr/sbin/nologin "$APP_USER"

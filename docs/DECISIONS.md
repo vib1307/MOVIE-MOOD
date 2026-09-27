@@ -388,6 +388,17 @@ Latency is ~7–9s on the Mac.
 
 ---
 
+## D-031 · Phase 7 · Traffic numbers only, from nginx logs (no user data collection yet)
+- **User:** collecting user data can wait. For now, just see how much traffic comes in.
+- **Decision:** no analytics script, no cookies (so no consent banner), no app changes. The traffic comes from nginx's access log, which exists anyway.
+  - `deploy/traffic.sh [days]` prints a per-day table: visitors (unique IPs, bots included), home page views, UI searches (successful `POST /gradio_api/queue/join` ÷ 3, because each search joins the queue for steps 1–3), API calls, and 429s. It reads rotated and gzipped logs too.
+  - `traffic.sh --report` builds a **GoAccess** HTML dashboard with `--anonymize-ip --no-query-string`. It is copied to the laptop with `scp` and never served publicly. `setup.sh` installs `goaccess`.
+- **Privacy:** query text is never logged (Gradio sends it in the request body, and nginx doesn't log bodies). IPs sit only in nginx logs, which Ubuntu's logrotate keeps ~14 days. That matters because the server is in the EU and IPs count as personal data.
+- **Later (when needed):** anonymous in-app events (top queries, chip clicks, "Why this pick" opens) + a privacy note.
+- **Verified:** `traffic.sh` on sample plain + gzipped logs gave the expected per-day counts.
+
+---
+
 ## Open questions
 - ~~**Recency skew**~~: resolved by D-010.
 - **Phase 2 ranking test (first run, 20 movies), `scripts/try_blobs.py`:**
