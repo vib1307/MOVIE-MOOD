@@ -31,6 +31,15 @@ K = 4  # the design shows four films
 MIN_QUERY = 3
 
 EXAMPLES = ["cozy and light", "dark and scary", "mind-bending", "a good cry", "pure adrenaline", "kuch halka sa"]
+# A mood (or a name) plus hard filters on rating / year / runtime (D-027); each one returns
+# films on the current catalog (checked when these were picked, D-030).
+FILTER_EXAMPLES = [
+    "action movies with IMDb 8.5+",
+    "romantic comedy from the 90s",
+    "funny under 2 hours, IMDb 7+",
+    "sci-fi after 2010",
+    "Shah Rukh Khan, rated 7.5+",
+]
 
 OLLAMA_ERRORS = (ConnectionError, ResponseError, httpx.TimeoutException)
 NO_MATCH = "🤔 Nothing in our catalog really fits that. Here are the nearest films we have."
@@ -140,6 +149,13 @@ CSS = """
                    font-size: 13px; padding: 6px 14px; background: var(--mm-surface) !important;
                    color: var(--mm-n300) !important; border: none !important; box-shadow: var(--mm-shadow-sm); }
 #mm-chips button:hover { color: var(--mm-text) !important; }
+.mm-chips-label { margin: 24px 0 8px; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+                  color: var(--mm-n500); }
+#mm-filter-chips { max-width: 760px; flex-wrap: wrap; gap: 8px; }
+#mm-filter-chips button { flex: 0 0 auto !important; min-width: 0 !important; border-radius: 999px;
+                          font-size: 13px; padding: 6px 14px; background: transparent !important;
+                          color: var(--mm-accent-300) !important; border: 1px dashed var(--mm-accent-600) !important; }
+#mm-filter-chips button:hover { background: color-mix(in srgb, var(--mm-accent) 12%, transparent) !important; }
 
 /* results */
 .mm-results-head { display: flex; align-items: baseline; gap: 16px; margin: 40px 0 8px; flex-wrap: wrap; }
@@ -366,6 +382,10 @@ def build_ui() -> gr.Blocks:
             go = gr.Button("Find films", elem_id="mm-go", scale=0)
         with gr.Row(elem_id="mm-chips") as chip_row:
             chips = [gr.Button(text, size="sm", scale=0) for text in EXAMPLES]
+        with gr.Column(visible=True) as filter_col:
+            gr.HTML("<p class='mm-chips-label'>Or mix a mood with filters: rating, year, length</p>")
+            with gr.Row(elem_id="mm-filter-chips"):
+                chips += [gr.Button(text, size="sm", scale=0) for text in FILTER_EXAMPLES]
         cards = gr.HTML("")
         misses = gr.State(None)  # step 2 -> step 3: the results when nothing fit
 
@@ -378,8 +398,8 @@ def build_ui() -> gr.Blocks:
             # Home -> Suggestions: hide the hero and chips (the design's results screen has neither).
             # Not for a too-short query: that only shows a warning, so stay on Home.
             if len((text or "").strip()) < MIN_QUERY:
-                return text, gr.update(), gr.update()
-            return text, gr.update(visible=False), gr.update(visible=False)
+                return text, gr.update(), gr.update(), gr.update()
+            return text, gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
 
         def wire(event):
             # step 1 (no limit, instant) -> steps 2 and 3 (one at a time, queued)
@@ -390,7 +410,7 @@ def build_ui() -> gr.Blocks:
                  .then(search_ingest, [query, misses], cards, concurrency_limit=1, concurrency_id="llm",
                        show_progress="hidden", **private)
 
-        screen = [query, hero, chip_row]
+        screen = [query, hero, chip_row, filter_col]
         wire(query.submit(to_results, query, screen, queue=False, **private))
         wire(go.click(to_results, query, screen, queue=False, **private))
         for chip in chips:

@@ -373,6 +373,21 @@ Latency is ~7–9s on the Mac.
 
 ---
 
+## D-030 · Phase 7 · Filter example chips on Home
+- **Why (user):** MovieMood isn't mood-only; it also combines hard filters (D-027), so Home should show that.
+- **What:** a second chip row under the mood chips, labeled "Or mix a mood with filters: rating, year, length". It uses dashed accent chips, so it reads as a different kind of example. `FILTER_EXAMPLES` has 5 entries:
+  - "action movies with IMDb 8.5+"
+  - "romantic comedy from the 90s"
+  - "funny under 2 hours, IMDb 7+"
+  - "sci-fi after 2010"
+  - "Shah Rukh Khan, rated 7.5+"
+
+  Each was checked to parse and to return films on the 505-film catalog. The row hides with the hero when results show.
+- **Parser tweak:** "from"/"in" now belong to a year phrase, so "romantic comedy from the 90s" embeds as "romantic comedy" (it used to keep a stray "from").
+- **Verified in Chrome:** the chip gives Gladiator 8.5, The Dark Knight 9.1, Star Wars 8.6, The Matrix 8.7 with "Filtered: IMDb 8.5+". `pytest`: 75 pass.
+
+---
+
 ## Open questions
 - ~~**Recency skew**~~: resolved by D-010.
 - **Phase 2 ranking test (first run, 20 movies), `scripts/try_blobs.py`:**

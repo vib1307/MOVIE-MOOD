@@ -28,7 +28,7 @@ FILLER = {"with", "than", "and", "or", "of", "a", "an", "se", "ke", "ki", "ka", 
           "at", "long", "to", "the"}
 # Each kind of phrase only claims its own words, so "under 2 hours imdb 7+" splits cleanly
 RATING_PHRASE = RATING_WORDS | UP_WORDS | DOWN_WORDS | FILLER
-YEAR_PHRASE = AFTER_WORDS | BEFORE_WORDS | FILLER | {"s"}
+YEAR_PHRASE = AFTER_WORDS | BEFORE_WORDS | FILLER | {"s", "from", "in"}  # "from the 90s", "in the 90s"
 RUNTIME_PHRASE = HOUR_WORDS | MINUTE_WORDS | UP_WORDS | DOWN_WORDS | FILLER
 WINDOW = 4  # tokens on each side of a number that can belong to its phrase
 

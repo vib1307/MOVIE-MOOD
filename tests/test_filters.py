@@ -14,6 +14,7 @@ from moviemood.core.filters import Filters, describe, parse_filters, to_where
         ("8 se upar rating wali action film", "action film", "IMDb 8+"),
         ("movies with imdb below 6", "movies", "IMDb up to 6"),
         ("Romantic 90s movies, no sad ending", "Romantic movies, no sad ending", "1990–1999"),
+        ("romantic comedy from the 90s", "romantic comedy", "1990–1999"),
         ("Sci-Fi after 2010", "Sci-Fi", "2010 or later"),
         ("horror before 2000", "horror", "1999 or earlier"),
         ("films between 2000 and 2010", "films", "2000–2010"),
