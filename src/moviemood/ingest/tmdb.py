@@ -1,6 +1,5 @@
 """TMDB client: discover movie ids by genre, fetch details, normalize to Movie."""
 
-import json
 import logging
 from datetime import date, timedelta
 from itertools import chain, zip_longest
@@ -12,6 +11,8 @@ from urllib3.util.retry import Retry
 
 from moviemood.config import get_settings
 from moviemood.core.models import Movie
+from moviemood.ingest.cache import read_json, write_json
+from moviemood.ingest.http import install_log_redaction
 
 log = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ class TMDBClient:
         self._key = settings.tmdb_api_key.get_secret_value()
         self.cache_dir = cache_dir or settings.data_dir / "cache" / "tmdb"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        install_log_redaction()
         self.session = self._make_session()
 
     def _make_session(self) -> requests.Session:
@@ -71,7 +73,10 @@ class TMDBClient:
             # which includes the api_key.
             status = getattr(e.response, "status_code", None)
             raise TMDBError(f"GET {path} failed (status={status}, {type(e).__name__})") from None
-        return resp.json()
+        try:
+            return resp.json()
+        except ValueError:  # e.g. an HTML error page from a proxy with status 200
+            raise TMDBError(f"GET {path} returned invalid JSON") from None
 
     def discover_ids(
         self,
@@ -123,30 +128,34 @@ class TMDBClient:
     def details(self, tmdb_id: int) -> dict:
         """Raw details + keywords + credits + external_ids, cached on disk."""
         cache_file = self.cache_dir / f"{tmdb_id}.json"
-        if cache_file.exists():
-            return json.loads(cache_file.read_text())
+        if (cached := read_json(cache_file)) is not None:
+            return cached
         data = self._get(
             f"/movie/{tmdb_id}",
             append_to_response="keywords,credits,external_ids",
             language="en-US",
         )
-        cache_file.write_text(json.dumps(data))
+        write_json(cache_file, data)
         return data
 
 
 def to_movie(details: dict) -> Movie:
     """Normalize a raw TMDB details response. imdb_rating is filled in later from OMDb."""
     release = details.get("release_date") or ""
-    cast = sorted(details.get("credits", {}).get("cast", []), key=lambda c: c["order"])
-    imdb_id = details.get("imdb_id") or details.get("external_ids", {}).get("imdb_id")
+    # `or {}` / `or []` (not .get(key, {})) also covers keys that are present but null
+    credits = details.get("credits") or {}
+    cast = sorted(credits.get("cast") or [], key=lambda c: c.get("order", 999))
+    external = details.get("external_ids") or {}
+    imdb_id = details.get("imdb_id") or external.get("imdb_id")
+    keywords = (details.get("keywords") or {}).get("keywords") or []
     return Movie(
         tmdb_id=details["id"],
         title=details["title"],
         overview=details.get("overview") or "",
         year=int(release[:4]) if release[:4].isdigit() else None,
         runtime=details.get("runtime") or None,  # 0 means unknown
-        genres=[g["name"] for g in details.get("genres", [])],
-        keywords=[k["name"] for k in details.get("keywords", {}).get("keywords", [])],
+        genres=[g["name"] for g in details.get("genres") or []],
+        keywords=[k["name"] for k in keywords],
         top_cast=[c["name"] for c in cast[:TOP_CAST]],
         poster_path=details.get("poster_path"),
         imdb_id=imdb_id or None,

@@ -62,6 +62,19 @@ Format: **Decision** / **Why** / **Revisit if**.
 **Why:** The first run had 12/20 movies from 2026. The 7 newest (11–81 days old) had few votes (500–800), and one had no IMDb rating. After the change: newest release is 2026-06-24 and 20/20 have a rating. 6 months was considered and rejected: it would also drop solid titles (Toy Story 5: 27 keywords; Obsession: 5.7k votes).
 **Revisit if:** the index feels dated, or new releases matter for the product.
 
+## D-011 · Phase 1 · Fixes from `/review-phase 1`
+**Decision:**
+- Cache writes go through `ingest/cache.py`: `write_json` is atomic (temp file, then rename). `read_json` deletes a corrupt file and returns `None` so the entry is refetched.
+- `fetch_movies.py` saves the chosen ids to `data/cache/discover_ids.json` together with the **requested** `limit`, and reuses them. `--refresh` forces a new discover; a larger `--limit` than the saved one also rediscovers. (Comparing against `len(ids)` was a bug caught in review: after dedup, discover can return fewer ids than asked, which would rediscover on every run at scale.)
+- The per-movie `except` also catches `KeyError` and `pydantic.ValidationError`. `to_movie` uses `x.get(k) or {}` so fields that are present but null don't crash, and TMDB `_get` turns non-JSON 200 responses into `TMDBError`.
+**Why:** A crash mid-write used to leave a truncated cache file that crashed every later run. Discover results change daily (popularity, moving cutoff), so "re-run tomorrow to fill ratings" would have fetched a different list. One malformed TMDB record could still kill the run.
+**Revisit if:** the list should follow current popularity. Use `--refresh`.
+
+## D-012 · Phase 1 · Redact API keys from urllib3 logs (corrects D-006)
+**Decision:** `ingest/http.py` adds a logging filter that rewrites `api_key=…`/`apikey=…` to `***` in the `urllib3.connectionpool` and `urllib3.util.retry` loggers. Both clients install it on init.
+**Why:** D-006's claim that the key "can't leak into logs" was wrong. `_get()` hides the key in its own errors, but urllib3 logs its own WARNING with the full URL on every retry. This happened live during testing on 2026-09-27 (a connection reset → retry warning printed the TMDB key). The key went to terminal output only, not into any file or commit. **The TMDB key should be rotated.**
+**Revisit if:** we switch TMDB to the v4 bearer token (header instead of URL), which removes the key from URLs entirely.
+
 ---
 
 ## Open questions

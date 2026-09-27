@@ -1,6 +1,5 @@
 """OMDb client: IMDb rating by imdb_id."""
 
-import json
 import logging
 from pathlib import Path
 
@@ -9,6 +8,8 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from moviemood.config import get_settings
+from moviemood.ingest.cache import read_json, write_json
+from moviemood.ingest.http import install_log_redaction
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ class OMDbClient:
         self._key = settings.omdb_api_key.get_secret_value()
         self.cache_dir = cache_dir or settings.data_dir / "cache" / "omdb"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        install_log_redaction()
         self.session = self._make_session()
 
     def _make_session(self) -> requests.Session:
@@ -70,12 +72,12 @@ class OMDbClient:
     def fetch(self, imdb_id: str) -> dict:
         """Raw OMDb response, cached on disk. "Not found" results are cached too."""
         cache_file = self.cache_dir / f"{imdb_id}.json"
-        if cache_file.exists():
-            return json.loads(cache_file.read_text())
+        if (cached := read_json(cache_file)) is not None:
+            return cached
         data = self._get(i=imdb_id)
         if data.get("Response") == "False":
             log.info("OMDb has no entry for %s: %s", imdb_id, data.get("Error"))
-        cache_file.write_text(json.dumps(data))
+        write_json(cache_file, data)
         return data
 
 
