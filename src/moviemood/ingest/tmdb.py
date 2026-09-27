@@ -32,6 +32,9 @@ DEFAULT_GENRES = {
     "Adventure": 12,
 }
 
+# Hindi, Tamil, Telugu (ISO 639-1 codes, as TMDB's original_language uses)
+INDIAN_LANGUAGES = ("hi", "ta", "te")
+
 
 class TMDBError(RuntimeError):
     pass
@@ -78,52 +81,75 @@ class TMDBClient:
         except ValueError:  # e.g. an HTML error page from a proxy with status 200
             raise TMDBError(f"GET {path} returned invalid JSON") from None
 
+    def _discover(self, want: int, **filters) -> list[int]:
+        """Page through /discover/movie (popularity order) until `want` ids are collected."""
+        ids: list[int] = []
+        page = 1
+        while len(ids) < want:
+            data = self._get(
+                "/discover/movie",
+                sort_by="popularity.desc",
+                include_adult="false",
+                language="en-US",
+                page=page,
+                **filters,
+            )
+            ids += [m["id"] for m in data["results"]]
+            if page >= data["total_pages"]:
+                break
+            page += 1
+        return ids
+
     def discover_ids(
         self,
         limit: int,
         genres: dict[str, int] = DEFAULT_GENRES,
         min_votes: int = 300,
         min_age_days: int = 90,
+        indian_share: float = 0.25,
+        indian_languages: tuple[str, ...] = INDIAN_LANGUAGES,
+        indian_min_votes: int = 100,
     ) -> list[int]:
-        """Popular, well-voted movie ids, interleaved across genres for variety.
+        """Popular, well-voted movie ids: a genre mix plus a slice of Indian films.
 
-        Movies released in the last `min_age_days` are skipped: their votes and
-        IMDb ratings haven't settled yet.
+        - Main slice: round-robin across `genres` so no single genre dominates.
+        - Indian slice (`indian_share` of `limit`): round-robin across `indian_languages`,
+          with a lower vote floor because Indian films get fewer TMDB votes.
+        - Movies released in the last `min_age_days` are skipped: their votes and
+          IMDb ratings haven't settled yet.
         """
         released_before = (date.today() - timedelta(days=min_age_days)).isoformat()
-        per_genre = -(-limit // len(genres))  # ceiling division
-        lists: list[list[int]] = []
-        for name, genre_id in genres.items():
-            ids: list[int] = []
-            page = 1
-            while len(ids) < per_genre:
-                data = self._get(
-                    "/discover/movie",
-                    with_genres=genre_id,
-                    sort_by="popularity.desc",
-                    **{
-                        "vote_count.gte": min_votes,
-                        "primary_release_date.lte": released_before,
-                    },
-                    include_adult="false",
-                    language="en-US",
-                    page=page,
-                )
-                ids += [m["id"] for m in data["results"]]
-                if page >= data["total_pages"]:
-                    break
-                page += 1
-            log.info("discover %s: %d ids", name, len(ids))
-            lists.append(ids)
+        n_indian = round(limit * indian_share) if indian_languages else 0
+        n_main = limit - n_indian
 
-        # Round-robin: comedy[0], drama[0], ..., comedy[1], drama[1], ...
-        seen: set[int] = set()
-        result: list[int] = []
-        for tmdb_id in chain.from_iterable(zip_longest(*lists)):
-            if tmdb_id is not None and tmdb_id not in seen:
-                seen.add(tmdb_id)
-                result.append(tmdb_id)
-        return result[:limit]
+        per_genre = -(-n_main // len(genres))  # ceiling division
+        genre_lists = []
+        for name, genre_id in genres.items():
+            ids = self._discover(
+                per_genre,
+                with_genres=genre_id,
+                **{"vote_count.gte": min_votes, "primary_release_date.lte": released_before},
+            )
+            log.info("discover %s: %d ids", name, len(ids))
+            genre_lists.append(ids)
+        main = _round_robin(genre_lists)[:n_main]
+
+        indian: list[int] = []
+        if n_indian:
+            per_lang = -(-n_indian // len(indian_languages))
+            lang_lists = []
+            for lang in indian_languages:
+                ids = self._discover(
+                    per_lang,
+                    with_original_language=lang,
+                    **{"vote_count.gte": indian_min_votes, "primary_release_date.lte": released_before},
+                )
+                log.info("discover language=%s: %d ids", lang, len(ids))
+                lang_lists.append(ids)
+            indian = _round_robin(lang_lists, exclude=set(main))[:n_indian]
+
+        return _spread(main, indian)
+
 
     def details(self, tmdb_id: int) -> dict:
         """Raw details + keywords + credits + external_ids, cached on disk."""
@@ -137,6 +163,30 @@ class TMDBClient:
         )
         write_json(cache_file, data)
         return data
+
+
+def _round_robin(lists: list[list[int]], exclude: set[int] = frozenset()) -> list[int]:
+    """Take one id from each list in turn, skipping duplicates.
+
+    [[c1, c2], [d1, d2]] -> [c1, d1, c2, d2]
+    """
+    seen = set(exclude)
+    result: list[int] = []
+    for tmdb_id in chain.from_iterable(zip_longest(*lists)):
+        if tmdb_id is not None and tmdb_id not in seen:
+            seen.add(tmdb_id)
+            result.append(tmdb_id)
+    return result
+
+
+def _spread(main: list[int], extra: list[int]) -> list[int]:
+    """Mix `extra` evenly through `main`, so any prefix of the result keeps the ratio.
+
+    main=[m1..m6], extra=[e1, e2] -> [m1, e1, m2, m3, m4, e2, m5, m6] (roughly)
+    """
+    keyed = [((i + 0.5) / len(main), x) for i, x in enumerate(main)]
+    keyed += [((j + 0.5) / len(extra), x) for j, x in enumerate(extra)]
+    return [x for _, x in sorted(keyed, key=lambda pair: pair[0])]
 
 
 def to_movie(details: dict) -> Movie:
@@ -159,4 +209,5 @@ def to_movie(details: dict) -> Movie:
         top_cast=[c["name"] for c in cast[:TOP_CAST]],
         poster_path=details.get("poster_path"),
         imdb_id=imdb_id or None,
+        original_language=details.get("original_language") or None,
     )

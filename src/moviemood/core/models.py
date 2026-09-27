@@ -15,3 +15,4 @@ class Movie(BaseModel):
     poster_path: str | None = None  # e.g. "/abc.jpg"; prefix with the image base URL to display
     imdb_id: str | None = None
     imdb_rating: float | None = None  # None when OMDb has no rating ("N/A")
+    original_language: str | None = None  # ISO 639-1, e.g. "en", "hi", "ta"

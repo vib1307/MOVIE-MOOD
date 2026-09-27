@@ -75,9 +75,40 @@ Format: **Decision** / **Why** / **Revisit if**.
 **Why:** D-006's claim that the key "can't leak into logs" was wrong. `_get()` hides the key in its own errors, but urllib3 logs its own WARNING with the full URL on every retry. This happened live during testing on 2026-09-27 (a connection reset → retry warning printed the TMDB key). The key went to terminal output only, not into any file or commit. **The TMDB key should be rotated.**
 **Revisit if:** we switch TMDB to the v4 bearer token (header instead of URL), which removes the key from URLs entirely.
 
+## D-013 · Phase 2 · Semantic blob design (from `/grill-me`)
+**Decision:**
+- **Blob fields:** title, genres, top 3 cast (`Starring:`), overview, and **all** keywords, as labeled lines. Year, runtime, rating, and poster stay metadata only.
+- **No nomic prefix in the blob.** A small `OllamaEmbeddings` wrapper in `core/vectorstore.py` (Phase 3) adds `search_document:` / `search_query:` automatically. The installed langchain-ollama 1.1.0 has no prefix option.
+- **`core/semantic_text.py`:** pure functions `build_document_text(movie) -> str` and `to_metadata(movie) -> dict` (flat scalars, lists joined into strings, `None` keys **omitted**; resolves the D-007 follow-up).
+- **Checkpoint:** print 3 blobs + `scripts/try_blobs.py`, which embeds all blobs in memory and prints the top 3 for a few mood queries.
+- **Not yet:** a Themes/Tone keyword split, or LLM mood tags. Add them only if the ranking test shows noise or thin movies ranking badly.
+**Why:**
+- Only meaning-bearing text helps embeddings. Cast was added after the user's "romantic Shah Rukh Khan" example: shared names boost similarity at ~10 tokens of cost. Exact actor matching needs a v2 metadata filter, since embeddings are fuzzy on names.
+- A keyword cap would drop the mood words, because TMDB lists them last (`feelgood`, `optimism`).
+- A clean blob keeps the prefix out of Chroma's `page_content` and out of the Phase 4 LLM prompt.
+- A placeholder like `-1` for a missing rating would break `rating >= 7` filters.
+**Revisit if:** the ranking test fails for noisy or thin movies.
+
+## D-014 · Phase 1 (revisit) · Include Indian films
+**Decision:** a second discover pass with `with_original_language` in `hi`, `ta`, `te`, for **25%** of `limit` (parameter `indian_share=0.25`), with `min_votes=100` for that slice, mixed into the main list.
+**Why:** The dataset was Hollywood-only (global popularity + en-US), so queries like "romantic Shah Rukh Khan" had nothing to match. South Indian films (RRR, Baahubali, Pushpa) are hugely popular. Indian films get fewer TMDB votes, so 300 would cut good films.
+**Revisit if:** Indian overviews and keywords turn out too thin (then LLM mood tags, D-013), or the share needs tuning after the first run.
+**Implemented:** `TMDBClient.discover_ids(indian_share=0.25, indian_languages=("hi","ta","te"), indian_min_votes=100)`. The Indian ids are spread evenly through the list (`_spread`), so any prefix keeps the ratio. `Movie` gained `original_language` for future language filters. First run: 3 Idiots, Leo, RRR, DDLJ, Maharaja. Their keyword counts are thin (6–7 for three of them).
+**Note:** changing discover parameters requires `fetch_movies.py --refresh`, because the saved id list is keyed only by `limit`.
+
+## D-015 · Phase 2 · Checkpoint accepted; LLM mood tags deferred
+**Decision:** Phase 2 passes with known limits. No LLM mood tags yet; rerun `scripts/try_blobs.py` after scaling to 300–500 movies and decide then.
+**Why:** 4 of 6 test queries were good, including the cast-driven SRK query. The two failures have different causes. Negation ("no sad ending" → Titanic) can't be fixed in the blob; it's the Phase 4 LLM re-rank's job. Thin keywords (Colony) are one data point out of 20 movies, too few to justify a per-movie LLM step.
+**Revisit if:** at 500 movies, thin-keyword films still miss obvious mood queries.
+
 ---
 
 ## Open questions
 - ~~**Recency skew**~~: resolved by D-010.
+- **Phase 2 ranking test (first run, 20 movies), `scripts/try_blobs.py`:**
+  - ✅ "romantic Shah Rukh Khan" → DDLJ, clear winner (0.71 vs 0.61): the cast-in-blob decision works. "epic space adventure" → Interstellar; "funny animated for kids" → Toy Story 5 / Minions / Zootopia 2.
+  - ❌ "feel-good, no sad ending" → **Titanic #1**. Embeddings don't understand negation ("no sad ending" ≈ "sad ending"). That's the Phase 4 LLM re-rank's job, not the blob's.
+  - ❌ "dark scary horror" → Minions & Monsters #3 (word overlap on "Monsters"), and Colony (a real horror film, 3 keywords) is missing from the top 3. This is the first evidence that thin keywords hurt.
+  - Scores are tightly clustered (0.49–0.50 for the feel-good top 3), so separation is weak.
 - **Thin keywords:** not about age. Colony (3 keywords) and The Death of Robin Hood (5) survive the cutoff. Check blob quality in Phase 2; a possible fix is a minimum keyword count.
 - **Dedup shortfall at scale:** `discover_ids` fetches a fixed number per genre, so after dedup a large `limit` (e.g. 500) can return fewer ids. Fix: keep paging until the number of unique ids reaches `limit`.
