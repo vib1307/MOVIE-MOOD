@@ -141,6 +141,30 @@ Format: **Decision** / **Why** / **Revisit if**.
 - Template why can show non-English TMDB keywords (Maharaja: 因果报应).
 **Status:** Phase 4 checkpoint **not passed on quality** yet. The next step is a design choice (see Open questions).
 
+## D-018 · Phase 4 · LLM demotes misfits instead of re-ranking (replaces D-017's re-rank)
+**Decision:** Final order = retrieval order. The LLM judges the top `2*k` candidates (`fits` + `why`), and the output is ordered in three tiers:
+1. fits, plus unjudged movies inside the window (retrieval order)
+2. judged misfits: `source="demoted"`, template why
+3. candidates beyond the window
+
+Nothing is removed, and the LLM never reorders freely.
+**Why:** Three designs were tested on the same 6 queries:
+- **Free re-rank (D-017)** made correct retrieval results worse (Maharaja over DDLJ for SRK; 3 Idiots over Toy Story for kids).
+- **Hard veto** fixed the negation cases (Titanic out for "no sad ending", Minions out of horror), but the 3B model over-vetoed ("Zootopia 2 is not primarily a comedy"). The gaps were then filled from ranks 11–15, putting Colony, a zombie film, into the kids' results.
+- **Demotion** keeps the wins and makes a wrong veto cheap.
+
+Results with demotion:
+- feel-good: DDLJ, Practical Magic, RRR; **Titanic 3→5**
+- horror: Resident Evil, **Colony ↑**, **Minions 3→4**
+- SRK: **DDLJ #1**
+- kids: identical to retrieval
+- sci-fi: identical to retrieval
+- Hinglish: DDLJ, 3 Idiots, Practical Magic (better)
+
+Latency is ~7–9s on the Mac.
+**Known limits:** Titanic is still in the feel-good top 5 (at #5). Demoted movies show the neutral "Close match for your mood: …" template, which reads oddly for a demoted Titanic. The LLM's reasons for demotions are only logged.
+**Revisit if:** the bigger-model test (open question) shows the LLM can be trusted with more (removal or reordering).
+
 ---
 
 ## Open questions
@@ -152,4 +176,4 @@ Format: **Decision** / **Why** / **Revisit if**.
   - Scores are tightly clustered (0.49–0.50 for the feel-good top 3), so separation is weak.
 - **Thin keywords:** not about age. Colony (3 keywords) and The Death of Robin Hood (5) survive the cutoff. Check blob quality in Phase 2; a possible fix is a minimum keyword count.
 - **Dedup shortfall at scale:** `discover_ids` fetches a fixed number per genre, so after dedup a large `limit` (e.g. 500) can return fewer ids. Fix: keep paging until the number of unique ids reaches `limit`.
-- **Phase 4 re-rank quality (D-017):** llama3.2 3B re-orders freely and sometimes makes things worse. Options: (a) retrieval order + LLM only **vetoes** misfits (negation / word overlap) and writes the why; (b) fewer candidates (8); (c) a bigger model (llama3.1 8B / qwen2.5 7B: slower, more RAM on EC2); (d) LLM only explains, never reorders.
+- **Bigger LLM (D-018):** test `qwen2.5:7b` (~4.7 GB download) with the same `scripts/try_recommend.py` queries: can it veto accurately, or even re-rank? Trade-off: ~2–3x slower, ~16 GB RAM on EC2. Deferred by the user; revisit after Phase 5–6.

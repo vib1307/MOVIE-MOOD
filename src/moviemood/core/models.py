@@ -30,5 +30,7 @@ class Recommendation(BaseModel):
     poster_path: str | None = None
     imdb_rating: float | None = None
     why: str
-    source: Literal["llm", "fallback"]  # who picked it: the LLM re-rank or plain retrieval order
+    # llm: LLM said it fits (and wrote the why); fallback: retrieval order, template why;
+    # demoted: LLM said it doesn't fit, so it was moved below the ones that do
+    source: Literal["llm", "fallback", "demoted"]
     distance: float  # cosine distance from the query (lower = closer)

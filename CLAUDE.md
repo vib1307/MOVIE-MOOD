@@ -29,7 +29,7 @@ scripts/   fetch_movies.py build_index.py
 ## Progress
 - Full phase plan and checkpoints: `docs/PLAN.md`
 - Why things are the way they are: `docs/DECISIONS.md`
-- **Current phase: 4 (recommender)**. Phases 0–3 are done (20 movies incl. 5 Indian indexed in `chroma_db/`; ranking check in `scripts/try_blobs.py`). Update this line when a phase checkpoint passes.
+- **Current phase: 5 (FastAPI)**. Phases 0–4 are done (`recommend()` in `core/recommender.py`; checks: `scripts/try_blobs.py`, `scripts/try_recommend.py`). Update this line when a phase checkpoint passes.
 
 ## Commands
 - `source venv/bin/activate`

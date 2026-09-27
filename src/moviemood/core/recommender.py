@@ -1,8 +1,14 @@
-"""recommend(query): retrieve candidates from Chroma, re-rank + explain with llama3.2. See D-017.
+"""recommend(query): retrieve candidates from Chroma, LLM demotes misfits + explains. See D-017, D-018.
 
 Flow:
-    query -> Chroma top `candidates` -> LLM picks k by number + writes "why"
-          -> validate (real numbers only, no duplicates) -> fill gaps in retrieval order
+    query -> Chroma top `candidates` (retrieval order)
+          -> LLM judges the top `2*k`: fits yes/no + "why"
+          -> order: fits (retrieval order) -> judged misfits -> unjudged rest
+The LLM never reorders freely and never removes: in testing, llama3.2 (3B) re-ranking
+made good retrieval results worse, and hard removal over-vetoed (Zootopia 2 "not a
+comedy") so far-down junk filled the gaps. Demotion keeps the upside (Titanic drops
+for "no sad ending") while a wrong veto only moves a movie down a few places.
+
 If the LLM step fails in any way, results fall back to plain retrieval order.
 Retrieval errors (e.g. Ollama down, so no query embedding) are NOT caught: the API
 turns those into a 503.
@@ -25,27 +31,29 @@ log = logging.getLogger(__name__)
 DEFAULT_CANDIDATES = 15
 LLM_TIMEOUT = 120  # seconds; CPU-only machines are slow
 
-SYSTEM_PROMPT = """You are a movie recommender. The user describes a mood or what they want to watch.
-You get a numbered list of candidate movies. Pick the best matches for the user's request.
+SYSTEM_PROMPT = """You check movie recommendations. The user describes a mood or what they want to watch.
+You get a numbered list of candidate movies. For EACH candidate, decide if it fits the request.
 
 Rules:
-- Only use numbers from the candidate list.
-- Respect negatives: "no sad ending" means skip movies whose story ends tragically;
-  "not scary" means skip horror.
-- Match the feeling, not just shared words (a family cartoon with "Monsters" in the title is not horror).
-- For each pick, write one short sentence (max 25 words) explaining why THIS movie fits THIS request.
-  Mention something specific about the movie. Do not start every sentence the same way."""
+- Answer for every candidate number in the list, in order.
+- fits=false when the movie clearly goes against the request:
+  - negatives: "no sad ending" -> a story that ends tragically does not fit; "not scary" -> horror does not fit.
+  - wrong kind of movie: a family cartoon does not fit "dark scary horror", even if its title shares a word.
+- Otherwise fits=true.
+- why: one short sentence (max 25 words) about THIS movie and THIS request. Do not copy the overview.
+  For fits=true say why it matches; for fits=false say what goes against the request."""
 
 
-class _Pick(BaseModel):
+class _Verdict(BaseModel):
     n: int = Field(description="candidate number from the list")
-    why: str = Field(description="one sentence: why this movie fits the request")
+    fits: bool = Field(description="false only if the movie clearly goes against the request")
+    why: str = Field(description="one sentence about this movie and this request")
 
 
-class _Rerank(BaseModel):
+class _Judgement(BaseModel):
     # min_length=1 becomes "minItems": 1 in the JSON schema. Without it llama3.2
-    # sometimes answered {"picks": []}, which is valid JSON but useless.
-    picks: list[_Pick] = Field(min_length=1)
+    # answered {"picks": []} for every query in the first version (D-017).
+    verdicts: list[_Verdict] = Field(min_length=1)
 
 
 @lru_cache
@@ -55,7 +63,7 @@ def _get_llm() -> ChatOllama:
         model=settings.llm_model,
         base_url=settings.ollama_base_url,
         temperature=0,  # same query -> same answer (D-017)
-        format=_Rerank.model_json_schema(),  # Ollama constrains output to this JSON shape
+        format=_Judgement.model_json_schema(),  # Ollama constrains output to this JSON shape
         client_kwargs={"timeout": LLM_TIMEOUT},
     )
 
@@ -66,7 +74,11 @@ def recommend(
     candidates: int = DEFAULT_CANDIDATES,
     rerank: bool = True,
 ) -> list[Recommendation]:
-    """Top-k movies for a mood query, each with a "why". Always returns min(k, candidates found)."""
+    """Top-k movies for a mood query, each with a "why". Always min(k, movies found) results.
+
+    With rerank=True the LLM judges the top 2*k: movies it says fit keep their
+    retrieval order and get its "why"; misfits move below them (source="demoted").
+    """
     catalog = get_catalog()
     hits = get_vectorstore().similarity_search_with_score(query, k=max(k, candidates))
     # [(Movie, distance)] in retrieval order; skip ids missing from the catalog (stale index)
@@ -76,56 +88,64 @@ def recommend(
         if doc.metadata["tmdb_id"] in catalog
     ]
 
-    picks: list[tuple[int, str]] = []  # (index into pool, why)
+    window = 2 * k
+    verdicts: dict[int, tuple[bool, str]] = {}  # pool index -> (fits, why)
     if rerank and pool:
-        picks = _llm_picks(query, pool, k)
+        verdicts = _llm_verdicts(query, pool[:window])
 
-    results = [_to_rec(pool[i], why, "llm") for i, why in picks]
-    # Fill the remaining slots in retrieval order.
-    used = {i for i, _ in picks}
+    # Tier 0: fits, or inside the window but unjudged (LLM skipped it / rerank off)
+    # Tier 1: judged a misfit by the LLM (demoted, not removed)
+    # Tier 2: beyond the window, never judged
+    ranked: list[tuple[int, Recommendation]] = []
     for i, entry in enumerate(pool):
-        if len(results) >= k:
-            break
-        if i not in used:
-            results.append(_to_rec(entry, _template_why(entry[0]), "fallback"))
-    return results
+        movie = entry[0]
+        if i in verdicts:
+            fits, why = verdicts[i]
+            if fits and why:
+                ranked.append((0, _to_rec(entry, why, "llm")))
+            else:
+                if not fits:
+                    log.info("demoted %s: %s", movie.title, why)
+                # the LLM's reason is about a misfit, so show the neutral template instead
+                ranked.append((0 if fits else 1, _to_rec(entry, _template_why(movie), "fallback" if fits else "demoted")))
+        else:
+            tier = 0 if i < window else 2
+            ranked.append((tier, _to_rec(entry, _template_why(movie), "fallback")))
+    ranked.sort(key=lambda pair: pair[0])  # stable: keeps retrieval order inside each tier
+    return [rec for _, rec in ranked[:k]]
 
 
-def _llm_picks(query: str, pool: list[tuple[Movie, float]], k: int) -> list[tuple[int, str]]:
-    """Ask the LLM for picks; return valid (pool index, why) pairs. [] on any failure."""
+def _llm_verdicts(query: str, window: list[tuple[Movie, float]]) -> dict[int, tuple[bool, str]]:
+    """Ask the LLM to judge each movie in `window`. {} on any failure."""
     numbered = "\n\n".join(
-        f"[{n}]\n{build_document_text(movie)}" for n, (movie, _) in enumerate(pool, start=1)
+        f"[{n}]\n{build_document_text(movie)}" for n, (movie, _) in enumerate(window, start=1)
     )
     messages = [
         ("system", SYSTEM_PROMPT),
         (
             "human",
             f"Request: {query}\n\nCandidates:\n{numbered}\n\n"
-            f"Pick the best {k}, best first. Answer as JSON, for example:\n"
-            '{"picks": [{"n": 4, "why": "..."}, {"n": 1, "why": "..."}]}',
+            f"Judge all {len(window)} candidates. Answer as JSON, for example:\n"
+            '{"verdicts": [{"n": 1, "fits": true, "why": "..."}, {"n": 2, "fits": false, "why": "..."}]}',
         ),
     ]
     try:
         raw = _get_llm().invoke(messages).content
-        parsed = _Rerank.model_validate_json(raw)
+        parsed = _Judgement.model_validate_json(raw)
     except Exception as e:  # timeout, Ollama error, bad JSON: all mean "use retrieval order"
-        log.warning("LLM re-rank failed, using retrieval order: %s: %s", type(e).__name__, e)
-        return []
+        log.warning("LLM judge failed, using retrieval order: %s: %s", type(e).__name__, e)
+        return {}
 
-    picks: list[tuple[int, str]] = []
-    seen: set[int] = set()
-    for pick in parsed.picks:
-        i = pick.n - 1  # the prompt is 1-based
-        if not 0 <= i < len(pool):
-            log.info("LLM picked [%d], not in 1..%d; dropped", pick.n, len(pool))
+    verdicts: dict[int, tuple[bool, str]] = {}
+    for v in parsed.verdicts:
+        i = v.n - 1  # the prompt is 1-based
+        if not 0 <= i < len(window):
+            log.info("LLM judged [%d], not in 1..%d; ignored", v.n, len(window))
             continue
-        if i in seen or not pick.why.strip():
+        if i in verdicts:  # keep the first verdict for a number
             continue
-        seen.add(i)
-        picks.append((i, pick.why.strip()))
-        if len(picks) == k:
-            break
-    return picks
+        verdicts[i] = (v.fits, v.why.strip())
+    return verdicts
 
 
 def _template_why(movie: Movie) -> str:

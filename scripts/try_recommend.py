@@ -1,4 +1,4 @@
-"""Phase 4 checkpoint: does the LLM re-rank improve on plain retrieval?
+"""Phase 4 checkpoint: does the LLM veto improve on plain retrieval?
 
 For each query, prints retrieval-only results next to the re-ranked ones.
 
@@ -26,7 +26,7 @@ K = 5
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     catalog = get_catalog()
 
     for query in sys.argv[1:] or QUERIES:
