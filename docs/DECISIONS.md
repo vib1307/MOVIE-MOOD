@@ -116,6 +116,31 @@ Format: **Decision** / **Why** / **Revisit if**.
 **Verified:** all 6 test queries return the same top 3 as `try_blobs.py`, with distance = 1 − score (DDLJ 0.714 → 0.286). A re-run keeps count = 20.
 **Known limit:** the `PLAN.md` checkpoint query "cozy feel-good" returns Interstellar, Practical Magic, Toy Story 5, all at ~0.54 distance: weak separation. The storage is correct; this is the Phase 2 mood-signal limit (D-015), left for the Phase 4 LLM re-rank and the 500-movie retest.
 
+## D-017 · Phase 4 · Recommender design (from `/grill-me`) + first results
+**Decision:**
+- `core/recommender.py` › `recommend(query, k=5, candidates=15, rerank=True)`: Chroma top 15 → llama3.2 picks by **short number** `[1]..[15]` (not TMDB id) and writes "why".
+- `ChatOllama(format=<JSON schema>, temperature=0)`. Schema requires at least one pick (`minItems: 1`).
+- Validation: drop out-of-range numbers and duplicates, then fill empty slots in retrieval order with a template "why" (last 3 keywords, i.e. the mood words). Any LLM failure means pure retrieval order. Each result has `source: "llm" | "fallback"`.
+- Retrieval errors (Ollama down) are not caught; Phase 5 maps them to a 503.
+- Returns `Recommendation` objects (in `core/models.py`); details come from `core/catalog.py` › `get_catalog()` (`movies.json`).
+- `rerank=False` fast mode (no LLM, <1s).
+- Checkpoint: `scripts/try_recommend.py`, 5 queries + 1 Hinglish probe, retrieval vs re-ranked side by side.
+**Why:**
+- In a pre-test, llama3.2 mistyped a 7-digit TMDB id (1084242 for 1084244); short numbers avoid that.
+- The schema forces the JSON structure; validation still guards the ids.
+- temperature=0 makes runs reproducible.
+- The fallback always returns k results.
+- Fast mode is a backup if CPU-only EC2 is too slow.
+**Found while building:** without `minItems`, llama3.2 returned `{"picks": []}` for every query (valid JSON, zero picks, so silent 100% fallback).
+**First results (20 movies, ~5s per query on the Mac):** the plumbing works (all picks valid, every result has a why), but **quality is mixed; the 3B model's re-rank is not reliably better than retrieval:**
+- ✅ Horror: Minions & Monsters removed, Colony surfaced. Hinglish "kuch halka sa, rona nahi chahiye" → 3 Idiots, DDLJ (good, but Colony at #4).
+- ⚠️ "feel-good, no sad ending": Titanic moved from #3 to #4 but stayed in, and its why says "tragic twist, but ultimately feel-good".
+- ❌ "romantic Shah Rukh Khan": Maharaja #1 over DDLJ, plus Interstellar and Blade Runner with an invented "romantic storyline".
+- ❌ "funny animated for kids": 3 Idiots #1, Zootopia 2 dropped.
+- Some "why"s just copy the overview (horror query) and aren't explanations.
+- Template why can show non-English TMDB keywords (Maharaja: 因果报应).
+**Status:** Phase 4 checkpoint **not passed on quality** yet. The next step is a design choice (see Open questions).
+
 ---
 
 ## Open questions
@@ -127,3 +152,4 @@ Format: **Decision** / **Why** / **Revisit if**.
   - Scores are tightly clustered (0.49–0.50 for the feel-good top 3), so separation is weak.
 - **Thin keywords:** not about age. Colony (3 keywords) and The Death of Robin Hood (5) survive the cutoff. Check blob quality in Phase 2; a possible fix is a minimum keyword count.
 - **Dedup shortfall at scale:** `discover_ids` fetches a fixed number per genre, so after dedup a large `limit` (e.g. 500) can return fewer ids. Fix: keep paging until the number of unique ids reaches `limit`.
+- **Phase 4 re-rank quality (D-017):** llama3.2 3B re-orders freely and sometimes makes things worse. Options: (a) retrieval order + LLM only **vetoes** misfits (negation / word overlap) and writes the why; (b) fewer candidates (8); (c) a bigger model (llama3.1 8B / qwen2.5 7B: slower, more RAM on EC2); (d) LLM only explains, never reorders.

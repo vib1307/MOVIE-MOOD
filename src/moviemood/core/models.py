@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -16,3 +18,17 @@ class Movie(BaseModel):
     imdb_id: str | None = None
     imdb_rating: float | None = None  # None when OMDb has no rating ("N/A")
     original_language: str | None = None  # ISO 639-1, e.g. "en", "hi", "ta"
+
+
+class Recommendation(BaseModel):
+    """One recommended movie, ready for the API and UI to display."""
+
+    tmdb_id: int
+    title: str
+    year: int | None = None
+    runtime: int | None = None
+    poster_path: str | None = None
+    imdb_rating: float | None = None
+    why: str
+    source: Literal["llm", "fallback"]  # who picked it: the LLM re-rank or plain retrieval order
+    distance: float  # cosine distance from the query (lower = closer)
