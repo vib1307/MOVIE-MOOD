@@ -101,6 +101,21 @@ Format: **Decision** / **Why** / **Revisit if**.
 **Why:** 4 of 6 test queries were good, including the cast-driven SRK query. The two failures have different causes. Negation ("no sad ending" → Titanic) can't be fixed in the blob; it's the Phase 4 LLM re-rank's job. Thin keywords (Colony) are one data point out of 20 movies, too few to justify a per-movie LLM step.
 **Revisit if:** at 500 movies, thin-keyword films still miss obvious mood queries.
 
+## D-016 · Phase 3 · Vector store design (from `/grill-me`)
+**Decision:**
+- `NomicEmbeddings(OllamaEmbeddings)` subclass in `core/vectorstore.py` adds `search_document:` / `search_query:` prefixes. Its `embed_query` calls `super().embed_documents` **directly**, because the parent's `embed_query` calls `self.embed_documents` and would otherwise double-prefix the query (found by reading langchain-ollama 1.1.0's source).
+- **Cosine** distance: `collection_configuration={"hnsw": {"space": "cosine"}}` (Chroma's default is l2).
+- **Full rebuild** on every `build_index`: delete the collection, re-embed everything. Ids = `str(tmdb_id)`.
+- `get_vectorstore()` (`@lru_cache`, shared by the API and UI) and `build_index(movies)` live in core; `scripts/build_index.py` is a thin CLI.
+- At runtime, **Chroma finds** and **`movies.json` provides the full details** (`{tmdb_id: Movie}`). Deploy needs both files.
+**Why:**
+- A subclass is ~10 lines.
+- Cosine distances map directly to `try_blobs.py` scores (distance = 1 − score).
+- Upsert-only would leave stale movies (e.g. Forrest Gump after the Indian slice) that the API can't find details for. Sync would leave old blob formats behind.
+- One place for store setup means the API and script can't drift apart.
+**Verified:** all 6 test queries return the same top 3 as `try_blobs.py`, with distance = 1 − score (DDLJ 0.714 → 0.286). A re-run keeps count = 20.
+**Known limit:** the `PLAN.md` checkpoint query "cozy feel-good" returns Interstellar, Practical Magic, Toy Story 5, all at ~0.54 distance: weak separation. The storage is correct; this is the Phase 2 mood-signal limit (D-015), left for the Phase 4 LLM re-rank and the 500-movie retest.
+
 ---
 
 ## Open questions
