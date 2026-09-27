@@ -73,6 +73,7 @@ Format: **Decision** / **Why** / **Revisit if**.
 ## D-012 · Phase 1 · Redact API keys from urllib3 logs (corrects D-006)
 **Decision:** `ingest/http.py` adds a logging filter that rewrites `api_key=…`/`apikey=…` to `***` in the `urllib3.connectionpool` and `urllib3.util.retry` loggers. Both clients install it on init.
 **Why:** D-006's claim that the key "can't leak into logs" was wrong. `_get()` hides the key in its own errors, but urllib3 logs its own WARNING with the full URL on every retry. This happened live during testing on 2026-09-27 (a connection reset → retry warning printed the TMDB key). The key went to terminal output only, not into any file or commit. **The TMDB key should be rotated.**
+**Status:** TMDB key rotated by the user on 2026-09-27; the new key was verified with one uncached TMDB call.
 **Revisit if:** we switch TMDB to the v4 bearer token (header instead of URL), which removes the key from URLs entirely.
 
 ## D-013 · Phase 2 · Semantic blob design (from `/grill-me`)
@@ -164,6 +165,37 @@ Results with demotion:
 Latency is ~7–9s on the Mac.
 **Known limits:** Titanic is still in the feel-good top 5 (at #5). Demoted movies show the neutral "Close match for your mood: …" template, which reads oddly for a demoted Titanic. The LLM's reasons for demotions are only logged.
 **Revisit if:** the bigger-model test (open question) shows the LLM can be trusted with more (removal or reordering).
+
+## D-019 · Phase 5 · FastAPI design (from `/grill-me`)
+**Decision:**
+- **503 via app-level exception handlers** in `api/main.py` for `ConnectionError` (Ollama down) and `ollama.ResponseError` (model missing), with the body `{"detail": "Recommendation engine unavailable, try again shortly"}`. `core/` stays framework-free.
+- **Separate API schemas** in `api/schemas.py`:
+  - `RecommendRequest {query: 3–300 chars, k: 1–10 = 5, rerank: bool = true}`
+  - `RecommendResponse {query, results: [{tmdb_id, title, year, runtime, poster_url, imdb_rating, why}]}`
+  - `MovieDetail` = all `Movie` fields + `poster_url`
+
+  `distance` and `source` stay internal. Poster URLs use `https://image.tmdb.org/t/p/w500`.
+- **`lifespan`:** load the catalog and Chroma at startup (a missing `movies.json`/`chroma_db` means the server won't start). Warm up Ollama in the background, non-fatal.
+- **Sync `def` endpoints.** Core calls block, so `async def` would freeze the event loop.
+- **`GET /health`:** 200 `{status: "ok", ollama: true, movies_indexed}` or 503 with `status: "degraded"`. It checks Ollama `/api/tags` (2s timeout) and that both models are present.
+- **`GET /api/v1/movies/{id}`:** 404 if not in the catalog.
+- **CORS** allowlist from the `CORS_ORIGINS` setting, default empty (never `*`).
+- **Tests:** `pytest` + `TestClient`, with core mocked (no Ollama needed). Covers the happy path, 422, 503, 404, and degraded health.
+**Why:**
+- One handler can't be forgotten in a new route.
+- The API contract is decoupled from core internals.
+- Fail fast on missing data, but don't block on an optional warm-up (the first llama3.2 call took ~22s).
+- Monitors read status codes.
+- Keep the door open for an Angular client (`localhost:4200`) without opening the API to the world.
+- API edge cases are hard to test by hand.
+**Revisit if:** concurrent users pile up behind Ollama (Phase 7: rate limiting).
+**Verified (real server):**
+- `/health` → 200 ok.
+- `/recommend` (SRK, k=2) → DDLJ + RRR with poster_urls: 10.2s, or 0.02s with `rerank:false`.
+- `/movies/19404` → 200, `/movies/999` → 404, a short query → 422, `/docs` → 200.
+- With `OLLAMA_BASE_URL` pointing nowhere: `/health` → 503 degraded, `/recommend` → 503, and `/movies` still 200.
+- An empty Chroma dir makes startup fail with "run scripts/build_index.py".
+- `pytest`: 13 tests pass in 0.6s.
 
 ---
 

@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     chroma_dir: Path = PROJECT_ROOT / "chroma_db"
     collection_name: str = "movies"
 
+    # API
+    # Browser origins allowed to call the API cross-origin, e.g. in .env:
+    # CORS_ORIGINS=["http://localhost:4200"]. Empty = same-origin only. Never "*".
+    cors_origins: list[str] = []
+
     @property
     def movies_json(self) -> Path:
         return self.data_dir / "movies.json"

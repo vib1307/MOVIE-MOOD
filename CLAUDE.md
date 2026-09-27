@@ -29,13 +29,14 @@ scripts/   fetch_movies.py build_index.py
 ## Progress
 - Full phase plan and checkpoints: `docs/PLAN.md`
 - Why things are the way they are: `docs/DECISIONS.md`
-- **Current phase: 5 (FastAPI)**. Phases 0–4 are done (`recommend()` in `core/recommender.py`; checks: `scripts/try_blobs.py`, `scripts/try_recommend.py`). Update this line when a phase checkpoint passes.
+- **Current phase: 6 (Gradio UI)**. Phases 0–5 are done (API in `api/`, tests in `tests/`; checks: `scripts/try_blobs.py`, `scripts/try_recommend.py`). Update this line when a phase checkpoint passes.
 
 ## Commands
 - `source venv/bin/activate`
 - `python scripts/fetch_movies.py` (TMDB/OMDb → `data/movies.json`)
 - `python scripts/build_index.py` (embed → `chroma_db/`)
 - `uvicorn moviemood.api.main:app --reload` (UI at `/`, API docs at `/docs`)
+- `python -m pytest` (API tests, no Ollama needed)
 
 ## Tools
 - **Context7 MCP** (`.mcp.json`): look up current LangChain / Chroma / Gradio / FastAPI / Ollama APIs before giving hints. These libraries change fast, so don't rely on memory.
