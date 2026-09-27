@@ -4,6 +4,7 @@ import logging
 import threading
 from contextlib import asynccontextmanager
 
+import gradio as gr
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +15,7 @@ from moviemood.api.routes import health_router, router
 from moviemood.config import get_settings
 from moviemood.core.catalog import get_catalog
 from moviemood.core.vectorstore import get_vectorstore
+from moviemood.ui.gradio_app import CSS, HEAD, THEME, build_ui
 
 log = logging.getLogger(__name__)
 
@@ -77,3 +79,8 @@ async def ollama_unavailable(request: Request, exc: Exception) -> JSONResponse:
         status_code=503,
         content={"detail": "Recommendation engine unavailable, try again shortly"},
     )
+
+
+# Gradio UI at "/". Mounted last so /api/v1/*, /health and /docs are matched first.
+# ssr_mode=False: no Node.js process needed on the server (D-020).
+app = gr.mount_gradio_app(app, build_ui(), path="/", ssr_mode=False, css=CSS, head=HEAD, theme=THEME)

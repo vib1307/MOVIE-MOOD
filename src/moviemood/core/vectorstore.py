@@ -18,6 +18,7 @@ log = logging.getLogger(__name__)
 
 DOC_PREFIX = "search_document: "
 QUERY_PREFIX = "search_query: "
+EMBED_BATCH = 64
 
 
 class NomicEmbeddings(OllamaEmbeddings):
@@ -67,7 +68,17 @@ def build_index(movies: list[Movie]) -> int:
         Document(page_content=build_document_text(m), metadata=to_metadata(m)) for m in movies
     ]
     ids = [str(m.tmdb_id) for m in movies]
-    store.add_documents(docs, ids=ids)
+    # Batches: LangChain embeds everything passed in one Ollama call, and 500 docs at
+    # once crashed Ollama's runner ("POST /tokenize: EOF"); 50 at a time was fine (D-025).
+    for start in range(0, len(docs), EMBED_BATCH):
+        store.add_documents(docs[start:start + EMBED_BATCH], ids=ids[start:start + EMBED_BATCH])
     count = store._collection.count()
     log.info("indexed %d movies into %s", count, get_settings().chroma_dir)
     return count
+
+
+def add_to_index(movies: list[Movie]) -> None:
+    """Embed and add movies without a rebuild. Same ids as build_index, so re-adding
+    a movie replaces it instead of duplicating it."""
+    docs = [Document(page_content=build_document_text(m), metadata=to_metadata(m)) for m in movies]
+    get_vectorstore().add_documents(docs, ids=[str(m.tmdb_id) for m in movies])

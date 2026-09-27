@@ -7,7 +7,8 @@ Usage:
 
 Safe to re-run: the chosen id list and raw API responses are cached in
 data/cache/, so re-runs use the same movies and only new ones hit the network.
-movies.json is rebuilt from the caches each run.
+movies.json is rebuilt from the caches each run. Movies added at runtime by lazy
+ingestion (data/added_ids.json) are kept too (D-024).
 """
 
 import argparse
@@ -17,6 +18,7 @@ from datetime import date
 from pydantic import ValidationError
 
 from moviemood.config import get_settings
+from moviemood.core.catalog import added_ids
 from moviemood.core.models import Movie
 from moviemood.ingest.cache import read_json, write_json
 from moviemood.ingest.omdb import OMDbClient, OMDbError, OMDbLimitReached, parse_rating
@@ -58,6 +60,10 @@ def main() -> None:
 
     ids = load_or_discover(tmdb, args.limit, args.refresh)
     log.info("discovered %d ids (asked for %d)", len(ids), args.limit)
+    extra = [i for i in added_ids() if i not in set(ids)]
+    if extra:
+        log.info("keeping %d movies added by lazy ingestion", len(extra))
+        ids += extra
 
     movies: list[Movie] = []
     failed: list[int] = []

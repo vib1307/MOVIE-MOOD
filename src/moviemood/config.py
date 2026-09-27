@@ -22,7 +22,9 @@ class Settings(BaseSettings):
     # Ollama
     ollama_base_url: str = "http://localhost:11434"
     embed_model: str = "nomic-embed-text"
-    llm_model: str = "llama3.2"
+    # qwen2.5:7b judged 85% of labeled cases right vs 62% for llama3.2, ~2x slower (D-026).
+    # Override with LLM_MODEL=llama3.2 in .env for the faster, smaller model.
+    llm_model: str = "qwen2.5:7b"
 
     # Paths
     data_dir: Path = PROJECT_ROOT / "data"
@@ -37,6 +39,11 @@ class Settings(BaseSettings):
     @property
     def movies_json(self) -> Path:
         return self.data_dir / "movies.json"
+
+    @property
+    def added_ids_json(self) -> Path:
+        """TMDB ids added at runtime by lazy ingestion; fetch_movies.py keeps them (D-024)."""
+        return self.data_dir / "added_ids.json"
 
 
 @lru_cache

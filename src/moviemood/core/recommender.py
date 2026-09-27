@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 
 from moviemood.config import get_settings
 from moviemood.core.catalog import get_catalog
+from moviemood.core.filters import parse_filters, to_where
 from moviemood.core.models import Movie, Recommendation
 from moviemood.core.semantic_text import build_document_text
 from moviemood.core.vectorstore import get_vectorstore
@@ -29,6 +30,7 @@ from moviemood.core.vectorstore import get_vectorstore
 log = logging.getLogger(__name__)
 
 DEFAULT_CANDIDATES = 15
+DEMOTED_WHY = "Nearest in our catalog, but it may not fit your request."
 LLM_TIMEOUT = 120  # seconds; CPU-only machines are slow
 
 SYSTEM_PROMPT = """You check movie recommendations. The user describes a mood or what they want to watch.
@@ -80,7 +82,12 @@ def recommend(
     retrieval order and get its "why"; misfits move below them (source="demoted").
     """
     catalog = get_catalog()
-    hits = get_vectorstore().similarity_search_with_score(query, k=max(k, candidates))
+    # "action movies with IMDb above 8.5": the number becomes a metadata filter, and only
+    # "action movies" is embedded and judged (D-027). Unfiltered queries pass through as-is.
+    query, filters = parse_filters(query)
+    hits = get_vectorstore().similarity_search_with_score(
+        query, k=max(k, candidates), filter=to_where(filters)
+    )
     # [(Movie, distance)] in retrieval order; skip ids missing from the catalog (stale index)
     pool = [
         (catalog[doc.metadata["tmdb_id"]], distance)
@@ -106,8 +113,10 @@ def recommend(
             else:
                 if not fits:
                     log.info("demoted %s: %s", movie.title, why)
-                # the LLM's reason is about a misfit, so show the neutral template instead
-                ranked.append((0 if fits else 1, _to_rec(entry, _template_why(movie), "fallback" if fits else "demoted")))
+                if fits:  # fits but no reason given: use the template
+                    ranked.append((0, _to_rec(entry, _template_why(movie), "fallback")))
+                else:  # the LLM's reason is about a misfit, so don't claim "close match"
+                    ranked.append((1, _to_rec(entry, DEMOTED_WHY, "demoted")))
         else:
             tier = 0 if i < window else 2
             ranked.append((tier, _to_rec(entry, _template_why(movie), "fallback")))
@@ -166,4 +175,5 @@ def _to_rec(entry: tuple[Movie, float], why: str, source: str) -> Recommendation
         why=why,
         source=source,
         distance=round(distance, 4),
+        overview=movie.overview,
     )

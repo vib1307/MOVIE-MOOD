@@ -1,6 +1,6 @@
 # MovieMood
 
-Semantic, mood-based movie discovery. Users describe a feeling in plain language ("feel-good, no sad ending") and get matching films with a "why this fits" explanation. Data: TMDB (overview, keywords, genres, cast, posters) + OMDb (IMDb rating). Embeddings: Ollama `nomic-embed-text`. LLM: Ollama `llama3.2`. Vector DB: Chroma. Orchestration: LangChain. Python 3.11+.
+Semantic, mood-based movie discovery. Users describe a feeling in plain language ("feel-good, no sad ending") and get matching films with a "why this fits" explanation. Data: TMDB (overview, keywords, genres, cast, posters) + OMDb (IMDb rating). Embeddings: Ollama `nomic-embed-text`. LLM: Ollama `qwen2.5:7b` (default since D-026; `llama3.2` also works via `LLM_MODEL`). Vector DB: Chroma. Orchestration: LangChain. Python 3.11+.
 
 ## Working style (important)
 - The user writes the code. They're a JS/Angular dev learning Python and AI/ML.
@@ -20,7 +20,7 @@ Semantic, mood-based movie discovery. Users describe a feeling in plain language
 src/moviemood/
   config.py                       # pydantic-settings, reads .env
   ingest/  tmdb.py omdb.py
-  core/    models.py semantic_text.py vectorstore.py recommender.py
+  core/    models.py semantic_text.py vectorstore.py recommender.py catalog.py lazy_ingest.py explain.py
   api/     main.py routes.py schemas.py
   ui/      gradio_app.py
 scripts/   fetch_movies.py build_index.py
@@ -29,7 +29,7 @@ scripts/   fetch_movies.py build_index.py
 ## Progress
 - Full phase plan and checkpoints: `docs/PLAN.md`
 - Why things are the way they are: `docs/DECISIONS.md`
-- **Current phase: 6 (Gradio UI)**. Phases 0–5 are done (API in `api/`, tests in `tests/`; checks: `scripts/try_blobs.py`, `scripts/try_recommend.py`). Update this line when a phase checkpoint passes.
+- **Current phase: 6 (Gradio UI) + 6.5 (lazy ingestion, built; see D-023)**. Crash-recovery notes: `docs/HANDOFF.md`. Phases 0–5 are done (API in `api/`, tests in `tests/`; checks: `scripts/try_blobs.py`, `scripts/try_recommend.py`). Update this line when a phase checkpoint passes.
 
 ## Commands
 - `source venv/bin/activate`

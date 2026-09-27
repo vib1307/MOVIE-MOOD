@@ -5,14 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from moviemood.core.models import Movie, Recommendation
-
-POSTER_BASE_URL = "https://image.tmdb.org/t/p/w500"
-
-
-def poster_url(poster_path: str | None) -> str | None:
-    """'/abc.jpg' -> 'https://image.tmdb.org/t/p/w500/abc.jpg'"""
-    return f"{POSTER_BASE_URL}{poster_path}" if poster_path else None
+from moviemood.core.models import Movie, Recommendation, poster_url
 
 
 class RecommendRequest(BaseModel):

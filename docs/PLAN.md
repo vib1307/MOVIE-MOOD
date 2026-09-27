@@ -24,7 +24,7 @@ The recommender is exposed as a separate REST API (FastAPI) so any client can us
 - Add `fastapi`, `uvicorn[standard]`, `pydantic-settings` to `requirements.txt`. Pin with `pip freeze` once Phase 5 works.
 - Restructure into `src/moviemood/` package; add `pyproject.toml` and `pip install -e .`
 - Fill `.env` (`TMDB_API_KEY`, `OMDB_API_KEY`, `OLLAMA_BASE_URL`), `Settings(BaseSettings)` in `config.py`.
-- `ollama pull nomic-embed-text` and `ollama pull llama3.2`
+- `ollama pull nomic-embed-text` and `ollama pull qwen2.5:7b` (default LLM since D-026; `llama3.2` is the lighter option)
 
 ✅ `python -c "import fastapi, gradio, langchain_chroma, moviemood"`; `ollama list` shows both; `git status` doesn't show `.env`.
 
@@ -64,13 +64,18 @@ Concepts: Pydantic schemas + validation, `lifespan` to load Chroma once, `Depend
 
 ✅ One uvicorn process serves UI at `/`, API at `/api/v1/*`, docs at `/docs`.
 
+### Phase 6.5 — Lazy ingestion (`core/lazy_ingest.py`)
+When every result is demoted, llama3.2 extracts `{person, title}`. TMDB search → ≤ 5 new, filtered movies → OMDb rating → Chroma + `movies.json` → recommend again. It's a third Gradio step; the API is unchanged. See D-023.
+
+✅ "Brad Pitt" (not in the catalog) → step 3 adds his films and shows them; a repeat search is instant, with no step 3.
+
 ### Phase 7 — Deploy (EC2)
-uvicorn under systemd, nginx + certbot HTTPS, Ollama as its own systemd service. Copy `chroma_db/` up or rebuild on the box. CPU-only llama3.2 is slow and needs ~8 GB RAM (t3.large+). Rate-limit `/api/v1/recommend`.
+uvicorn under systemd, nginx + certbot HTTPS, Ollama as its own systemd service. Copy `chroma_db/` up or rebuild on the box. CPU-only qwen2.5:7b (D-026) needs ~16 GB RAM (t3.xlarge-class) and is slow; llama3.2 fits in ~8 GB (t3.large) at lower judge accuracy. Rate-limit `/api/v1/recommend`.
 
 ✅ Public HTTPS URL: UI works, `/docs` reachable, `/health` green.
 
 ### v2
-Hybrid filters via Chroma `where` (runtime, rating, year) as optional fields on the recommend request; LLM/agent query → filters; `/api/v1/movies/{id}/similar`; caching.
+~~Hybrid filters via Chroma `where` (runtime, rating, year)~~ done from query text (D-027); explicit API fields are still optional later; LLM/agent query → filters; `/api/v1/movies/{id}/similar`; caching.
 
 ## End-to-end verification
 1. `python scripts/fetch_movies.py && python scripts/build_index.py`

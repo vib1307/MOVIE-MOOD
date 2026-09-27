@@ -199,6 +199,155 @@ Latency is ~7–9s on the Mac.
 
 ---
 
+## D-021 · Phase 6 · Example chips trimmed
+- Removed the "feel-good, no sad ending" chip, and "romantic Shah Rukh Khan" became "Shah Rukh Khan". User's call, to keep the chips simple.
+- The load screen shows no posters: `cards` starts with the empty-state text only, and there's no `ui.load` event.
+
+---
+
+## D-022 · Phase 6 · Honest "no match" (e.g. "Brad Pitt", with no Pitt films in the catalog)
+- Problem: Chroma always returns the nearest k, however far away they are. The LLM demoted all 6, but they still showed, labelled "Close match for your mood".
+- B (core): a demoted movie's why is now `DEMOTED_WHY` ("Nearest in our catalog, but it may not fit your request."), not the "Close match" template.
+- A (UI): if every result is `source == "demoted"`, `search_final` adds the note "Nothing in our catalog really fits that…". The API is unchanged; clients can check `source` themselves.
+- Placeholder and warning examples no longer say "no sad ending" (follows D-021).
+
+---
+
+## D-023 · Phase 6.5 · Lazy ingestion: grow the catalog on a miss (from `/grill-me`)
+**Decision:**
+- **Trigger:** only when step 2 demoted **every** result (the D-022 signal). Not a distance threshold (scores cluster), not every query (OMDb has 1000 requests/day).
+- **Names:** llama3.2 with a `format=` JSON schema extracts `{person, title}`. A name is kept only if at least half its words appear in the query (difflib, so typos are OK). This guard exists because llama3.2 invented the title "A Light Hearted, No Crying Required" for "kuch halka sa, rona nahi chahiye".
+- **Person:** `/search/person` → `/person/{id}/movie_credits`. Cast roles billed in the top `BLOB_CAST` (3) only, most-voted first. Brad Pitt in Deadpool 2 (billed 20th) is dropped because his name wouldn't be in the blob.
+- **Title:** `/search/movie`, taking the most-voted of the top 5 results, plus 4 of `/movie/{id}/recommendations` sorted by vote_count. TMDB's own order was noisy: The Dark Tower, Paycheck, Push for Inception.
+- **Filters:** votes ≥ 100, released 90+ days ago, not adult, overview present, ≥ 3 keywords, not already in the catalog. Max 5 new movies and 15 detail lookups per miss. If OMDb hits its limit, the movie is kept with rating `None`.
+- **Storage:** Chroma first (`add_to_index`), then `movies.json` + the in-memory catalog (`add_to_catalog`), under one `threading.Lock`. If embedding fails, the catalog stays unchanged, so the query can be retried.
+- **Repeat queries:** an in-memory `_tried` set (lowercased query) skips queries already handled. TMDB failures are not remembered.
+- **UI:** a third step, `search_ingest` (same `"llm"` queue). Step 2 passes the all-demoted results through `gr.State`, and its note says "🔎 Checking TMDB for more…". Step 3 either shows the new results with "🆕 Added from TMDB: …", or falls back to the plain no-match note.
+- **API unchanged:** lazy ingest is UI-only for now (Q11). `core.lazy_ingest()` is ready if the API wants it later.
+**Verified (real):**
+- "Brad Pitt" on the 20-movie catalog: step 2 took 11.5s (all demoted), step 3 took 15.2s and added Fight Club, Inglourious Basterds, Se7en, World War Z, Once Upon a Time… in Hollywood (25 in catalog and Chroma).
+- Searching again: step 2 took 9.8s, with fits and no step 3.
+- "Inception jaisi movie" (dry run) → Inception, The Matrix, The Matrix Reloaded, Oblivion.
+- `pytest`: 35 pass.
+**Known limits / open:**
+- **Directors are skipped.** The blob has no director line, so Nolan's movies couldn't be found by name after ingesting. Fix option: add `directors` to `Movie` + a "Directed by:" blob line, then run `fetch_movies.py` (cached, cheap) and `build_index.py`.
+- **`fetch_movies.py` rewrites `movies.json` from its discover list, which drops lazily-added movies.** It needs a merge before the next refetch.
+- llama3.2 still demoted World War Z and Once Upon a Time… for "Brad Pitt" (see D-018).
+
+---
+
+## D-024 · Phase 6.5 · Directors, refetch merge, Nocturne UI, "Why this pick" panel
+**Decision:**
+- **Directors:** `Movie.directors` (from TMDB crew, `job == "Director"`), a "Directed by:" blob line, and `directors` metadata. Lazy ingest now handles directors too (the movies they directed, most-voted first). This resolves the D-023 open question. After `fetch_movies.py` (from cache) + `build_index.py`, "christopher nolan" → Interstellar is #1.
+- **Refetch keeps lazy movies:** `add_to_catalog` records ids in `data/added_ids.json`, and `fetch_movies.py` appends them to the discover list. The 5 Brad Pitt ids were seeded by hand, and the refetch kept all 25.
+- **UI = the user's Claude Design "Nocturne" mock** (`Movie Mood.dc.html`):
+  - Dark theme (`#161826`, accent `#9184d9`, Inter).
+  - Home: "Tonight / How are you feeling?" + the design's six chips (replaces the D-021 chips). The hero and chips hide once a search starts.
+  - Suggestions: "Four films for “…”", numbered cards, meta "2009 · 171 min · IMDb 8.4". Phones get a list layout with the poster on the left.
+  - `K = 4` (the design shows four), so the LLM judges 8 instead of 12 and is faster.
+  - "Try another mood" and the logo are `href=''` (reload = back to Home).
+- **"Why this pick" panel** (user's choice: open on card click). Each card is a `<details>`, so it needs no JavaScript. The panel shows:
+  - **You asked for:** people from the query who are in the film ("Starring Brad Pitt", "Directed by Christopher Nolan"). Every word of the name must match (`name_in_query(..., 1)`); with half, "Christoph Waltz" matched "christopher nolan".
+  - **Closest to your mood:** the film's genres/keywords nearest the query, using the same nomic embeddings. Top 3, cosine ≥ 0.42. Measured: real matches were 0.42+ (mind reading 0.61), noise 0.35–0.40 (silent film for "cozy"). Skipped when the query is only a name + filler ("Brad Pitt" → "sharon tate" was noise). Tag vectors are cached per process; this costs ~0.2–0.6s per search.
+  - **How we checked:** from `source` (llm / fallback / demoted).
+  - **The story:** the overview, clipped to 5 lines.
+  - Logic lives in `core/explain.py`; the UI calls it after steps 2 and 3. The API is unchanged; the new `Recommendation` fields are internal.
+- **Gradio gotcha:** Gradio prefixes selectors inside a custom-CSS `@media` block, so page-level rules (body, container padding) go in `head=HEAD` instead.
+**Verified:**
+- Chrome at 1456px and in a 390px iframe:
+  - Home + Suggestions match the mock.
+  - The Se7en panel shows rage and hate / grimdark / neo-noir.
+  - "Brad Pitt dark" → Inglourious Basterds with "Starring Brad Pitt" + "dark comedy".
+- `pytest`: 46 pass.
+**Known limits:** The catalog is only 25 films, so "cozy and light" has few real fits and often gets no mood tags (honest, but sparse). The Gradio footer still shows.
+
+---
+
+## D-025 · Phase 6.5 · Catalog to 500 + mood-based lazy ingestion
+**Decision (user: "dono karo, pehle B phir A, 500 kam se kam"):**
+- **B, a bigger catalog:** `fetch_movies.py --limit 500`. `discover_ids` now uses `_discover_mix`, which asks each genre/language query for 1.5x more until there are `limit` unique ids (or every query runs out). This fixes the "dedup shortfall" open question: overlapping genres (a romcom is in both Comedy and Romance) used to leave fewer than `limit`.
+- **A, lazy ingest for moods:** the llama3.2 intent schema now also has `genres` (an enum of TMDB's 18 genre names, so Ollama can only pick real ones) and `keywords` (1–3 TMDB-style tags).
+  - When the query has no person/title: `/search/keyword` (exact name first) → `/discover/movie?with_keywords=k1|k2&with_genres=g1|g2`, most-voted first.
+  - If there are fewer than 5 results, genres alone (`g1,g2` = AND).
+  - The same filters and max 5 as before, and step 3 re-judges them with `recommend()`.
+  - Named queries ignore the mood guess.
+- **Title-that-is-a-mood retry:** llama3.2 read "a good cry" as the title "A Good Cry". The name guard can't catch this, because the words really are in the query. If a title-only intent finds nothing on TMDB, the query is read again with a "names nothing, fill only genres and keywords" hint.
+**Dry runs (real Ollama + TMDB):**
+- "a good cry" → Drama/Romance + tearjerker/grief → The Pianist, Manchester by the Sea, The Tree of Life, The Lion King (2019), Collateral Beauty.
+- "kuch halka sa, rona nahi chahiye" → Comedy/Family + feel-good → Back to the Future, Monsters Inc., Amélie.
+- "heist movie with a twist" → The Prestige, Ocean's Eleven, The Usual Suspects.
+- "Brad Pitt" and "Inception jaisi" still resolve as names. "asdf qwerty" → None.
+- **Title matches must be real:** every word of the asked-for title must be in the TMDB result's title. Before this, "A Good Cry" pulled Bad Grandpa / Tommy Boy + their recs, and only the keyword filter stopped them. Now it gives `[]`, and the mood retry runs. "Inception", "titanic", "the dark knight" still resolve.
+- **`build_index` embeds in batches of 64:** at 500 docs, LangChain sent them all in one Ollama call, and the runner crashed ("POST /tokenize: EOF"). Note: `build_index` deletes the collection first, so a crash mid-run leaves an empty index; re-run it.
+**Verified (real):**
+- The fetch wrote 500 movies (0 failed, 496 rated, all 500 with directors). The main slice first came back 317 of 375 unique, and `_discover_mix` topped it up.
+- The Brad Pitt ids were kept (they're in the new list anyway).
+- The index has 500.
+- `lazy_ingest("a good cry")` took 4s: title retry → mood → The Lion King (2019), The Pianist, Manchester by the Sea, Collateral Beauty, The Tree of Life. Chroma/JSON 505, `added_ids` 10.
+- `pytest`: 53 pass.
+**Known limits:**
+- **Step 3 rarely fires on moods now.** At 500 films, the LLM usually calls at least one retrieved film a fit, so step 3 (all demoted) rarely runs for moods. "kuch halka sa, rona nahi chahiye" → Kuch Kuch Hota Hai (word overlap on "kuch") and Kal Ho Naa Ho (a tearjerker) passed the 3B judge.
+- **Ingested films may not surface.** After ingesting for "a good cry", `recommend()` still showed Send Help / A Star Is Born first: the new films are in the catalog but not in the top 4 by embedding.
+- These are retrieval/judge quality issues (see D-018's bigger-LLM question), not ingestion issues.
+- Keyword mapping is the LLM's guess: "dark scary horror" pulled John Wick 2 (Horror|Thriller OR). Step 3's re-judge and demotion are the safety net.
+
+---
+
+## D-026 · Phase 6.5 · Bigger LLM test: qwen2.5:7b vs llama3.2 (D-018 open question)
+**Setup:** `scripts/compare_llms.py`. Both models judge the **same 8 retrieved candidates** for 10 queries (moods, Hinglish, SRK, Brad Pitt), with the recommender's own prompt and schema, on the 505-film catalog. Hand labels cover the clear-cut cases only (55 verdicts). Machine: 16 GB Mac.
+**Result:**
+
+| | llama3.2 (3B) | qwen2.5:7b |
+|---|---|---|
+| Correct labeled verdicts | 34/55 (62%) | **47/55 (85%)** |
+| Judge time per query | 8.2s | 15.6s (~1.9x) |
+| Size | 2.0 GB | 4.7 GB |
+
+- **llama3.2's errors are mostly false demotions:**
+  - 5 of 8 SRK films ("genre does not match the request for a Shah Rukh Khan movie")
+  - 4 of 8 Brad Pitt films
+  - Ocean's Eleven / Now You See Me for "heist with a twist"
+  - Insidious for "dark scary horror"
+  - It also passed Kal Ho Naa Ho as "light-hearted" and A Quiet Place as "a good cry".
+- **qwen2.5:7b** got every SRK / Brad Pitt / heist / horror / no-sad-ending label right. Its misses: "halka sa" (passed Kal Ho Naa Ho and K3G; demoted Koi… Mil Gaya and Hichki), and it is strict on kids/cozy (demoted Up, The Lorax).
+- **"Why" style:** qwen writes shorter, flatter reasons ("Drama with Brad Pitt."). llama's are longer and more specific.
+- **Intent extraction (lazy ingest):** qwen read "a good cry" as a mood on the first try (llama needed the D-025 retry), at 1.2–2.0s vs 0.6–1.0s. Both keep "SRK" as-is instead of expanding it.
+**Decision (user):** `qwen2.5:7b` is the default in `config.py`. Switching is config only (`LLM_MODEL` in `.env`, or the default in `config.py`), because `recommender` and `lazy_ingest` both read `settings.llm_model`.
+**Trade-off:** +13 correct verdicts (62% → 85%) vs 2x judge time locally. On EC2 (CPU only) that means ~16 GB RAM (t3.xlarge-class, not t3.large) and a slower step 2. Step 1 still shows results instantly, so the wait is on the "refining" step only.
+
+---
+
+## D-027 · Phase 6.5 · Hard filters in the query (IMDb rating, year, runtime)
+**Bug (user):** "action movies with more 8.5 above imdb" returned The Equalizer 7.3, Fast X 5.7, V 6.8, Sholay 8.1, even though the catalog has 12 action films ≥ 8.5 (The Dark Knight 9.1, Gladiator, T2, The Matrix…).
+**Root cause:** the rating is Chroma metadata, not blob text. Embeddings can't compare numbers, and the LLM judge sees only the blob, so nothing in the pipeline could apply "≥ 8.5".
+**Decision:**
+- `core/filters.py` parses rating / year / runtime from the query **with rules, not an LLM**: instant (step 1 has no LLM), deterministic, testable. `recommend()` passes `to_where(filters)` as Chroma's `filter`. Only the rest of the query ("action movies") is embedded and judged. This is the PLAN v2 "hybrid filters" item, pulled in early.
+- **Understood:**
+  - Rating: "8.5+", "above/over/more/at least 8", "rated 7 or more", "8 se upar rating", "imdb below 6".
+  - Years: "after/since 2010", "before 2000", "between 2000 and 2010", decades "90s"/"1990s".
+  - Runtime: "under 2 hours", "less than 90 min", "2 ghante se kam".
+  - A number counts as a rating only next to a rating word (imdb/rating/rated/stars), so "top 10" is left alone.
+- **Bare years are ignored:** "2012" is also a movie title.
+- **Each phrase claims only its own words:** in "under 2 hours imdb 7+", "under" belongs to the runtime, and `+` always means "at least". This bug was caught in the real run ("IMDb up to 7").
+- **Unfiltered queries pass through byte-for-byte**, and a filtered query keeps its casing and punctuation ("Sci-Fi").
+- **Movies without a rating never match a rating bound:** keys are omitted rather than `-1` (D-013 pays off).
+- **UI:**
+  - A "Filtered: IMDb 8.5+" note.
+  - A "Your filter" row in the why panel ("IMDb 8.5+ · this film: 2008 · 152 min · IMDb 9.1").
+  - An explicit empty state ("No films in our catalog match IMDb 9.9+. Try loosening it.").
+  - `explain()` matches mood tags on the filter-free text.
+- The API gets the filters for free, because they are parsed inside `recommend()`.
+**Verified (real, qwen2.5:7b):**
+- "action movies with more 8.5 above imdb" → step 1: Fight Club, Gladiator, Pulp Fiction, The Dark Knight. Step 2: Gladiator 8.5, The Dark Knight 9.1, Star Wars 8.6, The Matrix 8.7.
+- "romantic 90s movies" → Pretty Woman, Titanic, 10 Things I Hate About You, You've Got Mail.
+- "comedy under 2 hours imdb 7+" → The Hangover 7.7, Shrek 7.9…
+- `pytest`: 74 pass.
+**Known limits:**
+- English/Hinglish phrasings only; odd wordings fall through unfiltered (no harm, just no filter).
+- No genre or language hard filter: "action" stays semantic.
+
+---
+
 ## Open questions
 - ~~**Recency skew**~~: resolved by D-010.
 - **Phase 2 ranking test (first run, 20 movies), `scripts/try_blobs.py`:**
@@ -207,5 +356,5 @@ Latency is ~7–9s on the Mac.
   - ❌ "dark scary horror" → Minions & Monsters #3 (word overlap on "Monsters"), and Colony (a real horror film, 3 keywords) is missing from the top 3. This is the first evidence that thin keywords hurt.
   - Scores are tightly clustered (0.49–0.50 for the feel-good top 3), so separation is weak.
 - **Thin keywords:** not about age. Colony (3 keywords) and The Death of Robin Hood (5) survive the cutoff. Check blob quality in Phase 2; a possible fix is a minimum keyword count.
-- **Dedup shortfall at scale:** `discover_ids` fetches a fixed number per genre, so after dedup a large `limit` (e.g. 500) can return fewer ids. Fix: keep paging until the number of unique ids reaches `limit`.
-- **Bigger LLM (D-018):** test `qwen2.5:7b` (~4.7 GB download) with the same `scripts/try_recommend.py` queries: can it veto accurately, or even re-rank? Trade-off: ~2–3x slower, ~16 GB RAM on EC2. Deferred by the user; revisit after Phase 5–6.
+- ~~**Dedup shortfall at scale**~~: resolved by D-025 (`_discover_mix`).
+- ~~**Bigger LLM (D-018)**~~: tested in D-026 (qwen2.5:7b 85% vs llama3.2 62% on labeled verdicts, ~2x slower). The user made qwen the default.

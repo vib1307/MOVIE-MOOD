@@ -100,6 +100,27 @@ class TMDBClient:
             page += 1
         return ids
 
+    def _discover_mix(self, queries: dict[str, dict], want: int, exclude: set[int] = frozenset()) -> list[int]:
+        """Round-robin across several discover queries until `want` unique ids.
+
+        Genres overlap (a romcom is in both Comedy and Romance), so asking each query for
+        want/n ids came up short after dedup. Ask for 1.5x more each round until there are
+        enough, or every query has run out of results (D-025).
+        """
+        per = -(-want // len(queries))  # ceiling division
+        while True:
+            lists = [self._discover(per, **filters) for filters in queries.values()]
+            mixed = _round_robin(lists, exclude=exclude)
+            if len(mixed) >= want or all(len(ids) < per for ids in lists):
+                break
+            log.info("discover: %d unique of %d wanted, asking each query for more", len(mixed), want)
+            per = -(-per * 3 // 2)
+        for name, ids in zip(queries, lists):
+            log.info("discover %s: %d ids", name, len(ids))
+        if len(mixed) < want:
+            log.warning("discover: only %d unique ids available (wanted %d)", len(mixed), want)
+        return mixed[:want]
+
     def discover_ids(
         self,
         limit: int,
@@ -122,31 +143,19 @@ class TMDBClient:
         n_indian = round(limit * indian_share) if indian_languages else 0
         n_main = limit - n_indian
 
-        per_genre = -(-n_main // len(genres))  # ceiling division
-        genre_lists = []
-        for name, genre_id in genres.items():
-            ids = self._discover(
-                per_genre,
-                with_genres=genre_id,
-                **{"vote_count.gte": min_votes, "primary_release_date.lte": released_before},
-            )
-            log.info("discover %s: %d ids", name, len(ids))
-            genre_lists.append(ids)
-        main = _round_robin(genre_lists)[:n_main]
-
+        common = {"primary_release_date.lte": released_before}
+        main = self._discover_mix(
+            {name: {"with_genres": gid, "vote_count.gte": min_votes, **common} for name, gid in genres.items()},
+            n_main,
+        )
         indian: list[int] = []
         if n_indian:
-            per_lang = -(-n_indian // len(indian_languages))
-            lang_lists = []
-            for lang in indian_languages:
-                ids = self._discover(
-                    per_lang,
-                    with_original_language=lang,
-                    **{"vote_count.gte": indian_min_votes, "primary_release_date.lte": released_before},
-                )
-                log.info("discover language=%s: %d ids", lang, len(ids))
-                lang_lists.append(ids)
-            indian = _round_robin(lang_lists, exclude=set(main))[:n_indian]
+            indian = self._discover_mix(
+                {f"language={lang}": {"with_original_language": lang, "vote_count.gte": indian_min_votes, **common}
+                 for lang in indian_languages},
+                n_indian,
+                exclude=set(main),
+            )
 
         return _spread(main, indian)
 
@@ -163,6 +172,33 @@ class TMDBClient:
         )
         write_json(cache_file, data)
         return data
+
+    # Live lookups for lazy ingestion (D-023). Not cached: results change over time,
+    # and they only run on a catalog miss. Each returns TMDB's short movie/person dicts.
+
+    def search_person(self, name: str) -> list[dict]:
+        return self._get("/search/person", query=name, include_adult="false")["results"]
+
+    def movie_credits(self, person_id: int) -> dict:
+        """{"cast": [...], "crew": [...]}; crew items have a "job", e.g. "Director"."""
+        return self._get(f"/person/{person_id}/movie_credits", language="en-US")
+
+    def search_movie(self, title: str) -> list[dict]:
+        return self._get("/search/movie", query=title, include_adult="false", language="en-US")["results"]
+
+    def search_keyword(self, name: str) -> list[dict]:
+        """[{"id": 10683, "name": "tearjerker"}, ...]: TMDB keyword ids for discover."""
+        return self._get("/search/keyword", query=name)["results"]
+
+    def discover(self, **filters) -> list[dict]:
+        """One page (20) of /discover/movie, most-voted first; filters as TMDB names them."""
+        return self._get(
+            "/discover/movie", sort_by="vote_count.desc", include_adult="false", language="en-US", **filters
+        )["results"]
+
+    def recommendations(self, tmdb_id: int) -> list[dict]:
+        """TMDB's "if you liked this" list for a movie."""
+        return self._get(f"/movie/{tmdb_id}/recommendations", language="en-US")["results"]
 
 
 def _round_robin(lists: list[list[int]], exclude: set[int] = frozenset()) -> list[int]:
@@ -207,6 +243,7 @@ def to_movie(details: dict) -> Movie:
         genres=[g["name"] for g in details.get("genres") or []],
         keywords=[k["name"] for k in keywords],
         top_cast=[c["name"] for c in cast[:TOP_CAST]],
+        directors=[c["name"] for c in credits.get("crew") or [] if c.get("job") == "Director"],
         poster_path=details.get("poster_path"),
         imdb_id=imdb_id or None,
         original_language=details.get("original_language") or None,
