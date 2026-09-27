@@ -348,6 +348,24 @@ Latency is ~7–9s on the Mac.
 
 ---
 
+## D-028 · Phase 7 · Deploy: Hetzner CAX31 + local qwen2.5:7b + DuckDNS (from the user's Q1–Q3)
+**Decision:**
+- **Host: Hetzner Cloud CAX31** (Arm64, 8 vCPU / 16 GB, ~€13/month, billed hourly).
+  - Normal free tiers can't hold qwen2.5:7b + nomic + the app (~8 GB+): AWS t3.micro has 1 GB, Render 512 MB.
+  - AWS t3.xlarge (the old PLAN target) is ~$120/month.
+  - Oracle Always Free (24 GB ARM, ₹0) and HF Spaces (₹0, 2 vCPU, sleeps, loses runtime data) were offered; the user chose Hetzner.
+- **LLM: local qwen2.5:7b**, unchanged (D-026): no code change, no third party. Step 2 latency is to be measured on the box. The fallbacks are `LLM_MODEL=llama3.2`, or a later Groq mini-phase.
+- **URL: a DuckDNS subdomain + Let's Encrypt** (certbot --nginx, auto-renew), ₹0.
+- **Layout:** one VM running nginx (public, 80/443) → uvicorn on 127.0.0.1:8000 (**1 worker**: the Gradio queue and the lazy-ingest lock are per process) → Ollama on 127.0.0.1:11434 (`KEEP_ALIVE=24h`, `NUM_PARALLEL=1`). Hetzner firewall + ufw allow 22/80/443 only.
+- **Reproducible installs:** `requirements.lock`, frozen from the dev venv, installed with `uv` on **Python 3.11**. Ubuntu 24.04 ships 3.12, and the unpinned `requirements.txt` would have pulled a different Gradio than the 6.28 the UI CSS was verified on.
+- **Rate limits (nginx, per IP):** `/api/v1/recommend` 6/min (burst 3). `/gradio_api/queue/join` 30/min (burst 10), because each UI search joins the queue 3 times.
+- **Data:** `movies.json`, `added_ids.json` and `data/cache/` are rsynced once, and the index is rebuilt on the box (Chroma files built on macOS aren't guaranteed portable). After go-live the server's catalog is the source of truth (lazy ingestion), so it is never overwritten from the laptop.
+- **`setup.sh` is re-runnable:** it re-installs certbot's HTTPS block if a cert exists. Otherwise a re-run would have overwritten the site file and silently dropped HTTPS.
+**Files:** `deploy/` (setup.sh, moviemood.service, ollama.override.conf, nginx-moviemood.conf, nginx-proxy-snippet.conf, README.md runbook), `requirements.lock`.
+**Not yet verified:** nginx config (`nginx -t` runs in setup.sh; local Docker was off) and step-2 latency on CAX31. Fill these in after the first deploy.
+
+---
+
 ## Open questions
 - ~~**Recency skew**~~: resolved by D-010.
 - **Phase 2 ranking test (first run, 20 movies), `scripts/try_blobs.py`:**

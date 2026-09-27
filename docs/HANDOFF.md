@@ -15,6 +15,15 @@ _Last updated: 2026-09-27_
   - The "Why this pick" panel (`core/explain.py`).
 - Design source: `~/Desktop/Mood-Based Movie Recommendation App_files/Movie Mood.dc.html` (+ `styles.css`, `moods.js`).
 
+## Current task: Phase 7 deploy (plan approved 2026-09-27)
+Plan: `~/.claude/plans/nice-lets-think-of-tranquil-allen.md`. User's choices:
+- **Hetzner CAX31** (ARM, 8 vCPU / 16 GB, ~€13/mo)
+- **local qwen2.5:7b**
+- **DuckDNS** subdomain + Let's Encrypt
+
+Done: Phase 6/6.5 committed + pushed by the user (`fd7e835`). `deploy/` + `requirements.lock` written, D-028 logged (not committed yet).
+Next: the user follows `deploy/README.md` §1 (Hetzner account + CAX31 + firewall, DuckDNS) and shares the server IP + subdomain, then §2–7 together. Afterwards, fill in the step-2 latency + nginx verification in D-028.
+
 ## Next
 1. The user reviews the UI at `uvicorn moviemood.api.main:app --reload` → `/`.
 2. `/review-phase 6` (and 6.5), then commit, then Phase 7 deploy.

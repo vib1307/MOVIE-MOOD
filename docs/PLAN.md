@@ -69,8 +69,8 @@ When every result is demoted, llama3.2 extracts `{person, title}`. TMDB search �
 
 ✅ "Brad Pitt" (not in the catalog) → step 3 adds his films and shows them; a repeat search is instant, with no step 3.
 
-### Phase 7 — Deploy (EC2)
-uvicorn under systemd, nginx + certbot HTTPS, Ollama as its own systemd service. Copy `chroma_db/` up or rebuild on the box. CPU-only qwen2.5:7b (D-026) needs ~16 GB RAM (t3.xlarge-class) and is slow; llama3.2 fits in ~8 GB (t3.large) at lower judge accuracy. Rate-limit `/api/v1/recommend`.
+### Phase 7 — Deploy (Hetzner CAX31, D-028)
+uvicorn under systemd, nginx + certbot HTTPS on a DuckDNS subdomain, Ollama as its own systemd service (localhost only). Rsync data once, rebuild the index on the box. Runbook: `deploy/README.md`. Rate limits in nginx.
 
 ✅ Public HTTPS URL: UI works, `/docs` reachable, `/health` green.
 

@@ -1,0 +1,22 @@
+# MovieMood: FastAPI + Gradio in one uvicorn process. See deploy/README.md, D-028.
+# Installed by deploy/setup.sh to /etc/systemd/system/moviemood.service
+
+[Unit]
+Description=MovieMood (FastAPI + Gradio)
+After=network-online.target ollama.service
+Wants=network-online.target ollama.service
+
+[Service]
+User=moviemood
+Group=moviemood
+WorkingDirectory=/opt/moviemood
+# .env is read by pydantic-settings (config.py) from the project root, so nothing else is needed here.
+# One worker only: the Gradio queue and the lazy-ingest lock must live in one process (D-023).
+ExecStart=/opt/moviemood/.venv/bin/uvicorn moviemood.api.main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1
+Restart=always
+RestartSec=5
+# Startup loads the catalog + Chroma and warms up Ollama in the background (D-019).
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target
