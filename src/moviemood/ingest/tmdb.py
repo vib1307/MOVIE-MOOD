@@ -2,6 +2,7 @@
 
 import json
 import logging
+from datetime import date, timedelta
 from itertools import chain, zip_longest
 from pathlib import Path
 
@@ -77,8 +78,14 @@ class TMDBClient:
         limit: int,
         genres: dict[str, int] = DEFAULT_GENRES,
         min_votes: int = 300,
+        min_age_days: int = 90,
     ) -> list[int]:
-        """Popular, well-voted movie ids, interleaved across genres for variety."""
+        """Popular, well-voted movie ids, interleaved across genres for variety.
+
+        Movies released in the last `min_age_days` are skipped: their votes and
+        IMDb ratings haven't settled yet.
+        """
+        released_before = (date.today() - timedelta(days=min_age_days)).isoformat()
         per_genre = -(-limit // len(genres))  # ceiling division
         lists: list[list[int]] = []
         for name, genre_id in genres.items():
@@ -89,7 +96,10 @@ class TMDBClient:
                     "/discover/movie",
                     with_genres=genre_id,
                     sort_by="popularity.desc",
-                    **{"vote_count.gte": min_votes},
+                    **{
+                        "vote_count.gte": min_votes,
+                        "primary_release_date.lte": released_before,
+                    },
                     include_adult="false",
                     language="en-US",
                     page=page,

@@ -42,7 +42,29 @@ Format: **Decision** / **Why** / **Revisit if**.
 **Why:** Rating, runtime, and year are metadata for v2 filters, not part of the embedding, so a movie without them is still useful for mood search.
 **Revisit if:** Phase 3. Chroma metadata can't hold `None`, so we'll have to decide then whether to omit the key or use a sentinel value.
 
+## D-008 · Phase 1 · OMDb client (`ingest/omdb.py`)
+**Decision:** `OMDbClient.fetch(imdb_id)` caches raw responses in `data/cache/omdb/{imdb_id}.json`, **including "not found" results**. `parse_rating()` is separate and turns `"N/A"`, a missing rating, or `Response: "False"` into `None`. A 401 containing "limit" raises `OMDbLimitReached`; any other 401 raises `OMDbError`. Invalid JSON is treated as "not found". `_make_session`/`_get` are copied from `tmdb.py` for now.
+**Why:** OMDb has several quirks:
+- It returns HTTP 200 for errors.
+- Ratings are strings.
+- Its error text sometimes breaks its own JSON (unescaped quotes for malformed ids; seen live).
+- The free tier is 1000 requests/day, and retrying a daily limit is pointless, so the run should stop. Caching negative results means missing movies don't burn quota on every re-run.
+- Fetching and parsing are split so the parsing is testable offline.
+**Revisit if:** a third HTTP client appears (then extract the session and error handling to `ingest/http.py`), or cached "not found" entries need a refresh (delete `data/cache/omdb/`).
+
+## D-009 · Phase 1 · `scripts/fetch_movies.py` behavior
+**Decision:** `--limit` flag (default 20). A movie whose TMDB call fails is skipped and counted. When the OMDb daily limit is hit, the run **continues without ratings** instead of aborting. `movies.json` is rebuilt from the caches on every run and written atomically (temp file, then rename).
+**Why:** One bad movie shouldn't kill a 500-movie run. Because everything is cached, a re-run is cheap (1.7s vs 14s cold for 20 movies) and fills in missing ratings the next day. Atomic write means a crash never leaves a half-written JSON file for Phase 3 to choke on.
+**Revisit if:** runs get long enough that we want progress saved mid-run (not needed while caches exist).
+
+## D-010 · Phase 1 · Skip movies released in the last 90 days
+**Decision:** `discover_ids(min_age_days=90)` adds `primary_release_date.lte = today - 90 days` to discover. Still sorted by `popularity.desc`. The cutoff is relative to today, so it moves forward on future runs.
+**Why:** The first run had 12/20 movies from 2026. The 7 newest (11–81 days old) had few votes (500–800), and one had no IMDb rating. After the change: newest release is 2026-06-24 and 20/20 have a rating. 6 months was considered and rejected: it would also drop solid titles (Toy Story 5: 27 keywords; Obsession: 5.7k votes).
+**Revisit if:** the index feels dated, or new releases matter for the product.
+
 ---
 
 ## Open questions
-- **Recency skew:** `popularity.desc` pulls in very new releases, which have few votes and maybe no IMDb rating yet. Check once `data/movies.json` exists; fixes would be a higher `min_votes` or `vote_count.desc`.
+- ~~**Recency skew**~~: resolved by D-010.
+- **Thin keywords:** not about age. Colony (3 keywords) and The Death of Robin Hood (5) survive the cutoff. Check blob quality in Phase 2; a possible fix is a minimum keyword count.
+- **Dedup shortfall at scale:** `discover_ids` fetches a fixed number per genre, so after dedup a large `limit` (e.g. 500) can return fewer ids. Fix: keep paging until the number of unique ids reaches `limit`.

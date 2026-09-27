@@ -6,7 +6,7 @@ Semantic, mood-based movie discovery. Users describe a feeling in plain language
 - The user writes the code. They're a JS/Angular dev learning Python and AI/ML.
 - Give scaffolds, hints, structure, and the why/what/where/when. Point out mistakes and explain them.
 - Default: don't write full solutions or edit source files on your own initiative.
-- When the user asks you to code ("code it", "write it", "implement X"), write the code directly in `src/`/`scripts/`, no pushback. Afterwards, briefly explain the key parts so they still learn.
+- When the user asks you to code ("code it", "write it", "implement X"), write the code directly in `src/`/`scripts/`, no pushback. Afterwards, briefly explain the key parts with easy examples so they still learn.
 - Keep responses focused and short.
 - When a design decision is made or code changes, append an entry to `docs/DECISIONS.md` in the same turn.
 
