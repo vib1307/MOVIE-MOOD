@@ -418,6 +418,64 @@ Latency is ~7–9s on the Mac.
 
 ---
 
+## D-033 · Phase 7 · Hetzner CPX22 + OpenAI LLM (embeddings stay local) + 10 films per search
+**Why (user, 2026-09-28):**
+- Oracle kept failing with "Out of capacity for shape VM.Standard.A1.Flex in AD-1". Mumbai/Hyderabad have one AD, so there's nowhere else to try.
+- The user chose: "hetzner pe deploy karte hain, qwen use nai kar skte, we will use gpt".
+- The user also asked for at least 10 films per search, not 4–5.
+
+**Decision:**
+- **Host: Hetzner CPX22** (2 vCPU AMD / 4 GB / 80 GB, ~$23/month; the $25 verification credit covers month one). Supersedes D-032's host.
+  - Without a local LLM the box only needs nomic (~0.5 GB) + the app (~1 GB).
+  - Login is `root`. The ufw branch of `setup.sh` + a Hetzner Cloud Firewall (22/80/443) handle the firewall.
+- **LLM provider switch.** In `config.py`, `llm_provider: "ollama" | "openai"` (default `ollama`, so local dev is unchanged), plus `openai_api_key` and `openai_model` (default `gpt-4.1-mini`: cheap, fast, accepts `temperature=0`).
+  - `LLM_PROVIDER=openai` without a key fails at startup.
+  - The server `.env` sets `LLM_PROVIDER=openai`.
+- **New `core/llm.py` › `structured_llm(schema, timeout)`:** messages in, a validated Pydantic object out, for either provider.
+  - Ollama: exactly the old `ChatOllama(format=<schema>)` + `model_validate_json`.
+  - OpenAI: `ChatOpenAI(...).with_structured_output(schema, method="function_calling")`. It isn't strict `json_schema`, because strict mode rejects our optional fields and `minItems`. Pydantic still validates.
+  - `recommender._get_llm` and `lazy_ingest._get_llm` both use it, and their `except Exception` fallbacks are unchanged. An OpenAI error means retrieval order / no lazy ingest.
+- **Embeddings stay on Ollama nomic** (user's choice): search stays free and the index is unchanged (no rebuild).
+- **`/health`:** needs `embed_model` in Ollama, plus `llm_model` only when the provider is ollama. It never pings OpenAI (that would cost money on every monitor hit).
+- **Warm-up:** embeddings always, the LLM only for ollama.
+- **UI queue:** the "llm" queue (steps 2–3) allows 4 at once with OpenAI, 1 with Ollama (`LLM_CONCURRENCY`).
+- **10 films:**
+  - UI `K = 10` (grid of 5 columns: two rows).
+  - `recommend(k=10)` by default, and retrieval fetches `max(2*k, candidates)`, so the LLM always judges a full window of 20.
+  - API `k` default 10, max 20.
+  - The "About 10 seconds" note became "a few seconds".
+- **Deploy:** `setup.sh` pulls only nomic (a local LLM only with `PULL_LLM=qwen2.5:7b`). The README is Hetzner-first, with an OpenAI budget step, and Oracle is kept as "Other hosts".
+- **Deps:** `langchain-openai` (lock: `langchain-openai 1.6.6`, `openai 3.19.2`, `tiktoken`, `jiter`, `regex`).
+
+**Trade-offs:**
+- Each search now costs a little (a fraction of a cent; capped by an OpenAI budget + the nginx rate limits).
+- Queries leave the box (to OpenAI).
+- qwen's 85% judge accuracy (D-026) has not been re-measured for GPT yet.
+
+**Verified (local):**
+- `pytest`: 83 pass (+ `tests/test_llm.py`, and health per provider).
+- The real Ollama path with k=10: "feel-good, no sad ending" gives 10 results in 43.6s (qwen judging 20 on the Mac). 5 fit (Happy New Year, Puss in Boots 2, Inside Out, Coco, Anyone but You) and 5 were demoted (Smile 2, Manchester by the Sea, …). `extract_intent("Brad Pitt")` gives the person.
+
+**Known limit:** with 10 slots, when fewer than 10 of the 20 judged films fit, the rest are shown as demoted ("may not fit"). Fix if needed: judge more (3*k), or drop demoted films from the grid.
+**Not yet verified:**
+- the OpenAI path with a real key (the user adds it to `.env`)
+- the step-2 latency on the server
+
+---
+
+## D-034 · Phase 7 · Results are drawn once, after the LLM (loader instead of a draft list)
+**Problem:** step 1 showed 10 films in plain retrieval order, and ~2–10s later step 2 replaced the whole grid: misfits dropped, fits from places 11–20 jumped in, every "why" changed, and any open "Why this pick" panel snapped shut (the HTML is re-rendered). Users read it as a bug.
+**Decision:** step 1 (`show_loader`) no longer calls `recommend()`. It clears the last results and shows the results heading + a spinner ("Reading your mood…"). Step 2 (`search_final`) draws the real grid once.
+- The short-query warning stays in step 1.
+- Step 2 on an engine error now renders the "unavailable" state instead of `gr.skip()`, which would leave the spinner forever.
+- Step 3 (TMDB ingest) is unchanged: its swap is announced by the "Checking TMDB…" note.
+- `search_fast` and the "Refining with AI…" note are gone. The spinner stops under `prefers-reduced-motion`.
+**Why:** with OpenAI, step 2 takes ≤2s (user's measurement), so an honest short wait beats a draft that changes under the user. Considered: skeleton cards (overkill for 2s), keeping the draft order and updating only the "why" lines (fits from places 11–20 could never appear), a visibly "draft" list (still a swap).
+**Trade-off:** with local Ollama (~10s+, more when queued) users watch a spinner, with no early films. Fine now that the server uses OpenAI (D-033).
+**Verified:** `pytest` 84 pass (loader has no cards; engine error replaces the loader).
+
+---
+
 ## Open questions
 - ~~**Recency skew**~~: resolved by D-010.
 - **Phase 2 ranking test (first run, 20 movies), `scripts/try_blobs.py`:**

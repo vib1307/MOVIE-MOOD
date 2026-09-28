@@ -40,7 +40,7 @@ def get_movie(tmdb_id: int) -> MovieDetail:
 
 @health_router.get("/health", response_model=Health)
 def health(response: Response) -> Health:
-    """200 when everything works, 503 when Ollama is down or a model is missing."""
+    """200 when everything works, 503 when Ollama is down or a model it serves is missing."""
     ollama = ollama_ready()
     if not ollama:
         response.status_code = 503
@@ -48,7 +48,9 @@ def health(response: Response) -> Health:
 
 
 def ollama_ready() -> bool:
-    """Ollama reachable and both models pulled. Cheap: lists models, runs nothing."""
+    """Ollama reachable and its models pulled: nomic always, the LLM only when Ollama
+    serves it (with LLM_PROVIDER=openai, OpenAI isn't pinged: that would cost money on
+    every monitor hit, D-033). Cheap: lists models, runs nothing."""
     settings = get_settings()
     try:
         resp = httpx.get(f"{settings.ollama_base_url}/api/tags", timeout=2)
@@ -57,10 +59,8 @@ def ollama_ready() -> bool:
         return False
     names = {m["name"] for m in resp.json().get("models", [])}
     # Ollama reports "llama3.2:latest"; settings may say "llama3.2"
-    return all(
-        model in names or f"{model}:latest" in names
-        for model in (settings.embed_model, settings.llm_model)
-    )
+    needed = [settings.embed_model] + ([settings.llm_model] if settings.llm_provider == "ollama" else [])
+    return all(model in names or f"{model}:latest" in names for model in needed)
 
 
 def movies_indexed() -> int:

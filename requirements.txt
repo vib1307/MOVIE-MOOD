@@ -1,5 +1,6 @@
 langchain
 langchain-ollama
+langchain-openai
 langchain-chroma
 chromadb
 gradio

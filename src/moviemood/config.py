@@ -1,7 +1,8 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
-from pydantic import SecretStr
+from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # src/moviemood/config.py -> parents[2] is the project root
@@ -26,6 +27,12 @@ class Settings(BaseSettings):
     # Override with LLM_MODEL=llama3.2 in .env for the faster, smaller model.
     llm_model: str = "qwen2.5:7b"
 
+    # LLM provider (D-033). "ollama" uses llm_model above; "openai" uses openai_model and
+    # needs OPENAI_API_KEY. Embeddings stay on Ollama (nomic) either way.
+    llm_provider: Literal["ollama", "openai"] = "ollama"
+    openai_api_key: SecretStr | None = None
+    openai_model: str = "gpt-4.1-mini"  # cheap + fast, and accepts temperature=0
+
     # Paths
     data_dir: Path = PROJECT_ROOT / "data"
     chroma_dir: Path = PROJECT_ROOT / "chroma_db"
@@ -35,6 +42,12 @@ class Settings(BaseSettings):
     # Browser origins allowed to call the API cross-origin, e.g. in .env:
     # CORS_ORIGINS=["http://localhost:4200"]. Empty = same-origin only. Never "*".
     cors_origins: list[str] = []
+
+    @model_validator(mode="after")
+    def _openai_needs_key(self) -> "Settings":
+        if self.llm_provider == "openai" and not self.openai_api_key:
+            raise ValueError("LLM_PROVIDER=openai needs OPENAI_API_KEY in .env")
+        return self
 
     @property
     def movies_json(self) -> Path:

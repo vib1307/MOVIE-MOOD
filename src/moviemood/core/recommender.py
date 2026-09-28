@@ -17,12 +17,12 @@ turns those into a 503.
 import logging
 from functools import lru_cache
 
-from langchain_ollama import ChatOllama
+from langchain_core.runnables import Runnable
 from pydantic import BaseModel, Field
 
-from moviemood.config import get_settings
 from moviemood.core.catalog import get_catalog
 from moviemood.core.filters import parse_filters, to_where
+from moviemood.core.llm import structured_llm
 from moviemood.core.models import Movie, Recommendation
 from moviemood.core.semantic_text import build_document_text
 from moviemood.core.vectorstore import get_vectorstore
@@ -59,20 +59,14 @@ class _Judgement(BaseModel):
 
 
 @lru_cache
-def _get_llm() -> ChatOllama:
-    settings = get_settings()
-    return ChatOllama(
-        model=settings.llm_model,
-        base_url=settings.ollama_base_url,
-        temperature=0,  # same query -> same answer (D-017)
-        format=_Judgement.model_json_schema(),  # Ollama constrains output to this JSON shape
-        client_kwargs={"timeout": LLM_TIMEOUT},
-    )
+def _get_llm() -> Runnable:
+    """Messages -> _Judgement, from Ollama or OpenAI (settings.llm_provider, D-033)."""
+    return structured_llm(_Judgement, LLM_TIMEOUT)
 
 
 def recommend(
     query: str,
-    k: int = 5,
+    k: int = 10,
     candidates: int = DEFAULT_CANDIDATES,
     rerank: bool = True,
 ) -> list[Recommendation]:
@@ -86,7 +80,8 @@ def recommend(
     # "action movies" is embedded and judged (D-027). Unfiltered queries pass through as-is.
     query, filters = parse_filters(query)
     hits = get_vectorstore().similarity_search_with_score(
-        query, k=max(k, candidates), filter=to_where(filters)
+        # at least 2*k, so the LLM always gets a full window to judge (D-033: k=10 -> 20)
+        query, k=max(2 * k, candidates), filter=to_where(filters)
     )
     # [(Movie, distance)] in retrieval order; skip ids missing from the catalog (stale index)
     pool = [
@@ -139,9 +134,8 @@ def _llm_verdicts(query: str, window: list[tuple[Movie, float]]) -> dict[int, tu
         ),
     ]
     try:
-        raw = _get_llm().invoke(messages).content
-        parsed = _Judgement.model_validate_json(raw)
-    except Exception as e:  # timeout, Ollama error, bad JSON: all mean "use retrieval order"
+        parsed = _get_llm().invoke(messages)
+    except Exception as e:  # timeout, Ollama/OpenAI error, bad JSON: all mean "use retrieval order"
         log.warning("LLM judge failed, using retrieval order: %s: %s", type(e).__name__, e)
         return {}
 

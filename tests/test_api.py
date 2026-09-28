@@ -66,7 +66,7 @@ def test_recommend_passes_k_and_rerank_through(client, monkeypatch):
     {"query": "hi"},                    # too short
     {"query": "x" * 301},               # too long
     {"query": "cozy", "k": 0},
-    {"query": "cozy", "k": 11},
+    {"query": "cozy", "k": 21},
     {},                                 # missing query
 ])
 def test_recommend_rejects_bad_input(client, monkeypatch, body):
@@ -122,3 +122,27 @@ def test_health_degraded_when_ollama_down(client, monkeypatch):
     resp = client.get("/health")
     assert resp.status_code == 503
     assert resp.json()["status"] == "degraded"
+
+
+@pytest.mark.parametrize("provider, models, ready", [
+    ("ollama", ["nomic-embed-text:latest", "qwen2.5:7b"], True),
+    ("ollama", ["nomic-embed-text:latest"], False),  # the local LLM isn't pulled
+    ("openai", ["nomic-embed-text:latest"], True),  # OpenAI serves the LLM: only nomic needed (D-033)
+    ("openai", [], False),
+])
+def test_ollama_ready_needs_the_llm_only_when_ollama_serves_it(monkeypatch, provider, models, ready):
+    from moviemood.config import Settings
+
+    s = Settings(_env_file=None, tmdb_api_key="t", omdb_api_key="o",
+                 llm_provider=provider, openai_api_key="sk-test")
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"models": [{"name": n} for n in models]}
+
+    monkeypatch.setattr(routes, "get_settings", lambda: s)
+    monkeypatch.setattr(routes.httpx, "get", lambda url, timeout: FakeResponse())
+    assert routes.ollama_ready() is ready

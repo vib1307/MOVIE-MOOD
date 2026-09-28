@@ -62,21 +62,31 @@ def test_why_panel_skips_empty_rows():
     assert "may not fit" in out
 
 
-def test_short_query_does_not_call_recommend(monkeypatch):
+def test_loader_shows_spinner_and_no_cards(monkeypatch):
+    # Results are drawn once, after the LLM, so step 1 must not show any films (D-034).
     called = []
     monkeypatch.setattr(gradio_app, "recommend", lambda *a, **kw: called.append(a) or [])
-    monkeypatch.setattr(gradio_app.gr, "Warning", lambda msg: None)  # no UI context in tests
-    gradio_app.search_fast("hi")
+    out = gradio_app.show_loader("cozy <feel-good>")
+    assert "mm-spinner" in out and "mm-card" not in out
+    assert "cozy &lt;feel-good&gt;" in out
     assert called == []
 
 
-def test_ollama_down_shows_friendly_message(monkeypatch):
+def test_short_query_shows_hint_not_loader(monkeypatch):
+    monkeypatch.setattr(gradio_app.gr, "Warning", lambda msg: None)  # no UI context in tests
+    out = gradio_app.show_loader("hi")
+    assert "mm-spinner" not in out and "Type a mood" in out
+
+
+def test_ollama_down_replaces_loader_with_friendly_message(monkeypatch):
     def broken(*a, **kw):
         raise ConnectionError("Ollama down")
 
     monkeypatch.setattr(gradio_app, "recommend", broken)
     monkeypatch.setattr(gradio_app.gr, "Warning", lambda msg: None)
-    assert "isn&#x27;t available" in gradio_app.search_fast("cozy feel-good")
+    cards, misses = gradio_app.search_final("cozy feel-good")
+    assert "isn&#x27;t available" in cards  # not gr.skip(): the loader would spin forever
+    assert misses is None
 
 
 def test_all_demoted_shows_no_match_note_and_hands_misses_to_step3(monkeypatch):

@@ -6,13 +6,14 @@ one line of "why" per film; a list on phones). Clicking a card opens its "Why th
 pick" panel (D-024). Colors/fonts come from THEME + CSS below; main.py passes both to
 mount_gradio_app.
 
-Search runs in steps, so results appear instantly:
-    1. fast:   retrieval only (~0.02s), shown with a "refining" note
-    2. final:  LLM judges + explains (~10s), replaces step 1
+Search runs in steps. Results are drawn once, after the LLM (D-034):
+    1. loader: instant; clears the old results and shows a spinner
+    2. final:  retrieval + LLM judges + explains (~2s with OpenAI), replaces the loader
     3. ingest: only if step 2 found nothing that fits: fetch the named actor's/title's
                movies from TMDB into the catalog, then recommend again (D-023)
-Step 1 runs without a concurrency limit; steps 2-3 are limited to one at a time because
-Ollama works through LLM requests one by one anyway. Gradio shows queued users their position.
+Step 1 runs without a concurrency limit. Steps 2-3 share the "llm" queue: one at a time
+with Ollama (it works through LLM requests one by one anyway), a few at once with OpenAI
+(D-033). Gradio shows queued users their position.
 """
 
 import html
@@ -21,13 +22,15 @@ import gradio as gr
 import httpx
 from ollama import ResponseError
 
+from moviemood.config import get_settings
 from moviemood.core.explain import explain
 from moviemood.core.filters import describe, parse_filters
 from moviemood.core.lazy_ingest import lazy_ingest
 from moviemood.core.models import Recommendation, poster_url
 from moviemood.core.recommender import recommend
 
-K = 4  # the design shows four films
+LLM_CONCURRENCY = {"ollama": 1, "openai": 4}  # steps 2-3 running at once (D-033)
+K = 10  # user: at least 10 films per search (D-033); the design's grid showed four
 MIN_QUERY = 3
 
 EXAMPLES = ["cozy and light", "dark and scary", "mind-bending", "a good cry", "pure adrenaline", "kuch halka sa"]
@@ -45,7 +48,6 @@ OLLAMA_ERRORS = (ConnectionError, ResponseError, httpx.TimeoutException)
 NO_MATCH = "🤔 Nothing in our catalog really fits that. Here are the nearest films we have."
 SEARCHING_TMDB = NO_MATCH + " 🔎 Checking TMDB for more…"
 UNAVAILABLE = "😴 The recommendation engine isn't available right now. Please try again shortly."
-REFINING = "✨ Refining with AI… (about 10 seconds)"
 
 # How the pick was made, by Recommendation.source; shown in the "Why this pick" panel.
 HOW_CHECKED = {
@@ -166,7 +168,14 @@ CSS = """
            var(--mm-divider) 48px, var(--mm-divider) calc(100% - 48px), transparent); }
 .mm-note { margin: 0 0 24px; font-size: 14px; color: var(--mm-n400); }
 .mm-empty { padding: 48px 0; color: var(--mm-n400); }
-.mm-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 28px; align-items: start; }
+/* step 1 loader (D-034) */
+.mm-loading { display: flex; align-items: center; gap: 12px; padding: 48px 0; color: var(--mm-n400); font-size: 15px; }
+.mm-spinner { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--mm-accent-900);
+              border-top-color: var(--mm-accent); animation: mm-spin 0.8s linear infinite; }
+@keyframes mm-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .mm-spinner { animation: none; } }
+/* 10 films = two rows of five (D-033) */
+.mm-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 24px; align-items: start; }
 
 .mm-card > summary { list-style: none; cursor: pointer; display: flex; flex-direction: column; gap: 12px; }
 .mm-card > summary::-webkit-details-marker { display: none; }
@@ -308,22 +317,27 @@ def all_demoted(results: list[Recommendation]) -> bool:
     return bool(results) and all(r.source == "demoted" for r in results)
 
 
-def search_fast(query: str) -> str:
-    """Step 1: retrieval only, instant."""
+def render_loader(query: str) -> str:
+    """Step 1's screen: the results heading + a spinner, no cards (D-034)."""
+    return (
+        "<div class='mm-results-head'>"
+        f"<h2>Finding films for “{html.escape(query)}”</h2>"
+        "<a class='mm-again' href=''>Try another mood</a></div><div class='mm-rule'></div>"
+        "<div class='mm-loading' role='status'><span class='mm-spinner'></span>Reading your mood…</div>"
+    )
+
+
+def show_loader(query: str) -> str:
+    """Step 1: instant. Clears the last search's cards, so nothing is swapped later (D-034)."""
     query = (query or "").strip()
     if len(query) < MIN_QUERY:
         gr.Warning("Describe the mood in a few words, e.g. “cozy and light”.")
         return render_cards([], empty="Type a mood above or pick one of the suggestions.")
-    try:
-        results = recommend(query, k=K, rerank=False)
-    except OLLAMA_ERRORS:
-        gr.Warning(UNAVAILABLE)
-        return render_cards([], empty=UNAVAILABLE)
-    return render_cards(results, query, note=REFINING)
+    return render_loader(query)
 
 
 def search_final(query: str):
-    """Step 2: LLM judges + explains. On failure, keep whatever step 1 showed.
+    """Step 2: retrieval + LLM judges + explains, replacing the loader.
 
     Returns (cards, misses). `misses` holds the results when nothing fits, which tells
     step 3 to run; otherwise None.
@@ -334,8 +348,9 @@ def search_final(query: str):
     try:
         results = recommend(query, k=K)
     except OLLAMA_ERRORS:
+        # Not gr.skip(): that would leave the loader spinning forever.
         gr.Warning(UNAVAILABLE)
-        return gr.skip(), None
+        return render_cards([], empty=UNAVAILABLE), None
     explain(query, results)
     # Every movie judged a misfit (e.g. an actor we have no films of): say so honestly.
     if all_demoted(results):
@@ -401,13 +416,16 @@ def build_ui() -> gr.Blocks:
                 return text, gr.update(), gr.update(), gr.update()
             return text, gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
 
+        # Ollama on one box answers one LLM request at a time; OpenAI can take several.
+        llm_limit = LLM_CONCURRENCY[get_settings().llm_provider]
+
         def wire(event):
-            # step 1 (no limit, instant) -> steps 2 and 3 (one at a time, queued)
-            event.then(search_fast, query, cards, concurrency_limit=None,
+            # step 1 (no limit, instant) -> steps 2 and 3 (the shared "llm" queue)
+            event.then(show_loader, query, cards, concurrency_limit=None,
                        show_progress="minimal", **private) \
-                 .then(search_final, query, [cards, misses], concurrency_limit=1, concurrency_id="llm",
+                 .then(search_final, query, [cards, misses], concurrency_limit=llm_limit, concurrency_id="llm",
                        show_progress="hidden", **private) \
-                 .then(search_ingest, [query, misses], cards, concurrency_limit=1, concurrency_id="llm",
+                 .then(search_ingest, [query, misses], cards, concurrency_limit=llm_limit, concurrency_id="llm",
                        show_progress="hidden", **private)
 
         screen = [query, hero, chip_row, filter_col]

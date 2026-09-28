@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# One-time (and re-runnable) server setup for MovieMood on Ubuntu 24.04 arm64
-# (Oracle Cloud Always Free A1: 2 OCPU / 12 GB; also works on Hetzner/other VMs).
-# See deploy/README.md, D-028 and D-032.
+# One-time (and re-runnable) server setup for MovieMood on Ubuntu 24.04 (x86 or arm64).
+# Target: Hetzner CPX22 (2 vCPU / 4 GB) with the LLM on OpenAI; also works on Oracle.
+# See deploy/README.md, D-028, D-032 and D-033.
 #
 # Usage, as root, from the cloned repo:
 #   cd /opt/moviemood && sudo bash deploy/setup.sh moviemood.duckdns.org
+# With the LLM on this box too (needs ~8 GB RAM, not a 4 GB server):
+#   sudo PULL_LLM=qwen2.5:7b bash deploy/setup.sh moviemood.duckdns.org
 #
 # Safe to re-run: every step checks or overwrites. It does NOT start the app if .env or
 # data/movies.json is missing; it prints what to do next instead.
@@ -22,7 +24,7 @@ say() { printf '\n\033[1;35m==> %s\033[0m\n' "$*"; }
 [[ $EUID -eq 0 ]] || { echo "run as root (sudo)"; exit 1; }
 [[ "$(pwd)" == "$APP_DIR" ]] || { echo "run from $APP_DIR (the cloned repo)"; exit 1; }
 
-say "Swap (4 GB safety net: qwen2.5:7b + nomic + app use ~8 of 12 GB)"
+say "Swap (4 GB safety net: nomic + app use ~1.5 GB; a local LLM needs far more)"
 if ! swapon --show | grep -q /swapfile; then
     [[ -f /swapfile ]] || { fallocate -l 4G /swapfile && chmod 600 /swapfile && mkswap /swapfile; }
     swapon /swapfile
@@ -49,8 +51,10 @@ systemctl daemon-reload
 systemctl enable --now ollama
 systemctl restart ollama
 for _ in {1..30}; do curl -sf http://127.0.0.1:11434/api/tags >/dev/null && break; sleep 1; done
-ollama pull nomic-embed-text
-ollama pull qwen2.5:7b  # ~4.7 GB, the default LLM (D-026)
+ollama pull nomic-embed-text  # embeddings always run here (D-033)
+# The LLM is OpenAI by default on the server (LLM_PROVIDER=openai in .env). Only pull a
+# local one when asked, e.g. PULL_LLM=qwen2.5:7b (~4.7 GB, D-026).
+if [[ -n "${PULL_LLM:-}" ]]; then ollama pull "$PULL_LLM"; fi
 
 say "Permissions"
 mkdir -p data chroma_db

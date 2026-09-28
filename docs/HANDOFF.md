@@ -2,7 +2,7 @@
 
 If a session ends suddenly, start the next one from here. Update this file at every checkpoint, and clear sections once they're done.
 
-_Last updated: 2026-09-27_
+_Last updated: 2026-09-28_
 
 ## Where things stand
 - **Phase 6 (Gradio UI) + 6.5 (lazy ingestion) are built but not committed.** 74 tests pass. Details: D-023 to D-027 in `docs/DECISIONS.md` (D-026: qwen default; D-027: rating/year/runtime filters parsed from the query).
@@ -15,7 +15,24 @@ _Last updated: 2026-09-27_
   - The "Why this pick" panel (`core/explain.py`).
 - Design source: `~/Desktop/Mood-Based Movie Recommendation App_files/Movie Mood.dc.html` (+ `styles.css`, `moods.js`).
 
-## Current task: Phase 7 deploy (plan approved 2026-09-27)
+## Current task: Phase 7 deploy on Hetzner CPX22 + OpenAI (D-033, 2026-09-28)
+- **Oracle is abandoned:** "Out of capacity" for A1, and the region has only one AD.
+- **Code done (not committed):**
+  - `LLM_PROVIDER` switch in `core/llm.py`
+  - 10 films per search (UI + API)
+  - health/warm-up per provider
+  - `setup.sh` pulls only nomic
+  - README is Hetzner-first
+  - `pytest`: 83 pass. The real Ollama path was checked.
+  - D-034: the UI shows a loader, then draws results once after the LLM (no more draft list that swaps). 84 pass.
+- **Next:**
+  1. The user adds `LLM_PROVIDER=openai` + `OPENAI_API_KEY` to the local `.env` and runs `python scripts/try_recommend.py` (check quality + speed vs qwen). Then the UI at `/`.
+  2. Commit + push.
+  3. README §1: OpenAI budget, Hetzner CPX22 + firewall, DuckDNS.
+  4. §2–7 on the server together.
+  5. Log the step-2 latency in D-033.
+
+## Earlier: Current task: Phase 7 deploy (plan approved 2026-09-27)
 Plan: `~/.claude/plans/nice-lets-think-of-tranquil-allen.md`. User's choices:
 - **Hetzner CAX31** (ARM, 8 vCPU / 16 GB, ~€13/mo)
 - **local qwen2.5:7b**
@@ -29,7 +46,7 @@ Next: the user follows `deploy/README.md` §1 (Hetzner account + CAX31 + firewal
 - **Blocker:** "Cost-Optimized" (ARM CAX31) is disabled for the account (tried fs). The AMD 16 GB option (CPX42) is ~$82/mo, too much. Pending: try nbg/hel.
 - **Oracle Always Free, checked on docs.oracle.com:** **2 OCPU / 12 GB** A1 (not 4/24), 200 GB block storage, free for the life of the account in the home region. The card is for verification only (temporary hold, no charge unless the account is upgraded). Idle instances (7 days <20% CPU/net/mem) may be reclaimed, and "out of host capacity" is possible.
 - **Decided (D-032): Oracle Always Free**, local qwen, DuckDNS. `deploy/` adapted for Oracle (the `ubuntu` user, iptables, swap). Next: the user does README §1 (signup, VM, VCN ingress 80/443, DuckDNS) and shares the IP + subdomain, then §2–7 together.
-- Parked for later: show ≥50 / all matching films; results changing after the AI step feels like a bug (needs a UX fix); AWS serverless as a possible Phase 8.
+- Parked for later: show ≥50 / all matching films; AWS serverless as a possible Phase 8.
 
 ## Next
 1. The user reviews the UI at `uvicorn moviemood.api.main:app --reload` → `/`.

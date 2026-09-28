@@ -18,11 +18,11 @@ from datetime import date, timedelta
 from functools import lru_cache
 from typing import Literal
 
-from langchain_ollama import ChatOllama
+from langchain_core.runnables import Runnable
 from pydantic import BaseModel, Field, ValidationError
 
-from moviemood.config import get_settings
 from moviemood.core.catalog import add_to_catalog, get_catalog
+from moviemood.core.llm import structured_llm
 from moviemood.core.models import Movie
 from moviemood.core.semantic_text import BLOB_CAST, name_in_query
 from moviemood.core.vectorstore import add_to_index
@@ -46,7 +46,7 @@ GENRE_IDS = {
     "Horror": 27, "Music": 10402, "Mystery": 9648, "Romance": 10749,
     "Science Fiction": 878, "Thriller": 53, "War": 10752, "Western": 37,
 }
-Genre = Literal[tuple(GENRE_IDS)]  # the JSON schema lists them, so Ollama can only pick these
+Genre = Literal[tuple(GENRE_IDS)]  # the JSON schema lists them, so the LLM can only pick these
 MAX_MOOD_KEYWORDS = 3
 
 SYSTEM_PROMPT = """You read a movie search request and say what it asks for.
@@ -78,15 +78,9 @@ class QueryIntent(BaseModel):
 
 
 @lru_cache
-def _get_llm() -> ChatOllama:
-    settings = get_settings()
-    return ChatOllama(
-        model=settings.llm_model,
-        base_url=settings.ollama_base_url,
-        temperature=0,
-        format=QueryIntent.model_json_schema(),
-        client_kwargs={"timeout": LLM_TIMEOUT},
-    )
+def _get_llm() -> Runnable:
+    """Messages -> QueryIntent, from Ollama or OpenAI (settings.llm_provider, D-033)."""
+    return structured_llm(QueryIntent, LLM_TIMEOUT)
 
 
 MOOD_ONLY_HINT = "\n\n(This request names no person and no movie title. Fill only genres and keywords.)"
@@ -97,9 +91,8 @@ def extract_intent(query: str, mood_only: bool = False) -> QueryIntent | None:
     None if it's neither (or the LLM failed). mood_only: re-read it as a pure mood."""
     try:
         request = query + (MOOD_ONLY_HINT if mood_only else "")
-        raw = _get_llm().invoke([("system", SYSTEM_PROMPT), ("human", request)]).content
-        intent = QueryIntent.model_validate_json(raw)
-    except Exception as e:  # timeout, Ollama error, bad JSON: just skip lazy ingest
+        intent = _get_llm().invoke([("system", SYSTEM_PROMPT), ("human", request)])
+    except Exception as e:  # timeout, Ollama/OpenAI error, bad JSON: just skip lazy ingest
         log.warning("name extraction failed: %s: %s", type(e).__name__, e)
         return None
     # llama3.2 sometimes invents a name from mood words ("kuch halka sa, rona nahi

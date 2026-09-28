@@ -12,7 +12,7 @@ class RecommendRequest(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)  # "  cozy  " -> "cozy" before the length check
 
     query: str = Field(min_length=3, max_length=300, examples=["feel-good, no sad ending"])
-    k: int = Field(default=5, ge=1, le=10, description="how many movies to return")
+    k: int = Field(default=10, ge=1, le=20, description="how many movies to return")
     rerank: bool = Field(default=True, description="false = fast mode: retrieval only, no LLM (<1s)")
 
 

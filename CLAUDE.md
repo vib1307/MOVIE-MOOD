@@ -1,6 +1,6 @@
 # MovieMood
 
-Semantic, mood-based movie discovery. Users describe a feeling in plain language ("feel-good, no sad ending") and get matching films with a "why this fits" explanation. Data: TMDB (overview, keywords, genres, cast, posters) + OMDb (IMDb rating). Embeddings: Ollama `nomic-embed-text`. LLM: Ollama `qwen2.5:7b` (default since D-026; `llama3.2` also works via `LLM_MODEL`). Vector DB: Chroma. Orchestration: LangChain. Python 3.11+.
+Semantic, mood-based movie discovery. Users describe a feeling in plain language ("feel-good, no sad ending") and get matching films with a "why this fits" explanation. Data: TMDB (overview, keywords, genres, cast, posters) + OMDb (IMDb rating). Embeddings: Ollama `nomic-embed-text`. LLM: Ollama `qwen2.5:7b` locally (default since D-026; `llama3.2` via `LLM_MODEL`), or OpenAI via `LLM_PROVIDER=openai` (the server, D-033). Provider switch: `core/llm.py`. Vector DB: Chroma. Orchestration: LangChain. Python 3.11+.
 
 ## Working style (important)
 - The user writes the code. They're a JS/Angular dev learning Python and AI/ML.
@@ -14,13 +14,13 @@ Semantic, mood-based movie discovery. Users describe a feeling in plain language
 - `src/moviemood/core/` is framework-free RAG logic. **It never imports FastAPI or Gradio.**
 - `src/moviemood/api/` is FastAPI (REST, `/api/v1/*`, Swagger at `/docs`).
 - `src/moviemood/ui/` is Gradio, mounted inside the FastAPI app at `/`. It calls `core` directly, not over HTTP.
-- One uvicorn process serves everything. Deploy target: Oracle Cloud Always Free A1 VM (ARM, 2 OCPU / 12 GB, ₹0) + nginx + Let's Encrypt on a DuckDNS subdomain, with Ollama on the same box. Runbook: `deploy/README.md` (D-028, D-032).
+- One uvicorn process serves everything. Deploy target: Hetzner CPX22 (2 vCPU / 4 GB) + nginx + Let's Encrypt on a DuckDNS subdomain. Ollama on the same box serves only nomic embeddings; the LLM is OpenAI. Runbook: `deploy/README.md` (D-028, D-032, D-033).
 
 ```
 src/moviemood/
   config.py                       # pydantic-settings, reads .env
   ingest/  tmdb.py omdb.py
-  core/    models.py semantic_text.py vectorstore.py recommender.py catalog.py lazy_ingest.py explain.py
+  core/    models.py semantic_text.py vectorstore.py recommender.py catalog.py lazy_ingest.py explain.py llm.py filters.py
   api/     main.py routes.py schemas.py
   ui/      gradio_app.py
 scripts/   fetch_movies.py build_index.py
@@ -29,7 +29,7 @@ scripts/   fetch_movies.py build_index.py
 ## Progress
 - Full phase plan and checkpoints: `docs/PLAN.md`
 - Why things are the way they are: `docs/DECISIONS.md`
-- **Current phase: 7 (Deploy, Oracle Always Free; see D-032 + `deploy/README.md`)**. Phases 6 (Gradio UI) and 6.5 (lazy ingestion, filters, qwen; D-023 to D-027) are done and committed. Crash-recovery notes: `docs/HANDOFF.md`. Phases 0–5 are done (API in `api/`, tests in `tests/`; checks: `scripts/try_blobs.py`, `scripts/try_recommend.py`). Update this line when a phase checkpoint passes.
+- **Current phase: 7 (Deploy, Hetzner CPX22 + OpenAI LLM; see D-033 + `deploy/README.md`)**. Phases 6 (Gradio UI) and 6.5 (lazy ingestion, filters, qwen; D-023 to D-027) are done and committed. Crash-recovery notes: `docs/HANDOFF.md`. Phases 0–5 are done (API in `api/`, tests in `tests/`; checks: `scripts/try_blobs.py`, `scripts/try_recommend.py`). Update this line when a phase checkpoint passes.
 
 ## Commands
 - `source venv/bin/activate`

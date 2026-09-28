@@ -69,8 +69,8 @@ When every result is demoted, llama3.2 extracts `{person, title}`. TMDB search �
 
 ✅ "Brad Pitt" (not in the catalog) → step 3 adds his films and shows them; a repeat search is instant, with no step 3.
 
-### Phase 7 — Deploy (Oracle Cloud Always Free A1, D-032)
-uvicorn under systemd, nginx + certbot HTTPS on a DuckDNS subdomain, Ollama as its own systemd service (localhost only). Rsync data once, rebuild the index on the box. Runbook: `deploy/README.md`. Rate limits in nginx.
+### Phase 7 — Deploy (Hetzner CPX22 + OpenAI LLM, D-033; was Oracle, D-032)
+uvicorn under systemd, nginx + certbot HTTPS on a DuckDNS subdomain, Ollama (nomic only) as its own systemd service (localhost only), LLM on OpenAI (`LLM_PROVIDER=openai`). Rsync data once, rebuild the index on the box. Runbook: `deploy/README.md`. Rate limits in nginx.
 
 ✅ Public HTTPS URL: UI works, `/docs` reachable, `/health` green.
 

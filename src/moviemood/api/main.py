@@ -43,7 +43,8 @@ def _warm_up_ollama() -> None:
 
     try:
         get_vectorstore().embeddings.embed_query("warm up")
-        _get_llm().invoke("Reply with an empty verdict list.")
+        if get_settings().llm_provider == "ollama":  # an OpenAI call would only cost money (D-033)
+            _get_llm().invoke("Reply with an empty verdict list.")
         log.info("Ollama models warmed up")
     except Exception as e:
         log.warning("Ollama warm-up failed (the server still runs): %s: %s", type(e).__name__, e)
