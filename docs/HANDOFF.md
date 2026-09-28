@@ -24,6 +24,13 @@ Plan: `~/.claude/plans/nice-lets-think-of-tranquil-allen.md`. User's choices:
 Done: Phase 6/6.5 committed + pushed by the user (`fd7e835`). `deploy/` + `requirements.lock` written, D-028 logged (not committed yet).
 Next: the user follows `deploy/README.md` §1 (Hetzner account + CAX31 + firewall, DuckDNS) and shares the server IP + subdomain, then §2–7 together. Afterwards, fill in the step-2 latency + nginx verification in D-028.
 
+### Server status (2026-09-27, evening)
+- **Hetzner:** account verified. **$25 was paid at verification; use it later** (it should be account credit that pays future invoices; confirm in Console → Billing). No server created yet.
+- **Blocker:** "Cost-Optimized" (ARM CAX31) is disabled for the account (tried fs). The AMD 16 GB option (CPX42) is ~$82/mo, too much. Pending: try nbg/hel.
+- **Oracle Always Free, checked on docs.oracle.com:** **2 OCPU / 12 GB** A1 (not 4/24), 200 GB block storage, free for the life of the account in the home region. The card is for verification only (temporary hold, no charge unless the account is upgraded). Idle instances (7 days <20% CPU/net/mem) may be reclaimed, and "out of host capacity" is possible.
+- **Decided (D-032): Oracle Always Free**, local qwen, DuckDNS. `deploy/` adapted for Oracle (the `ubuntu` user, iptables, swap). Next: the user does README §1 (signup, VM, VCN ingress 80/443, DuckDNS) and shares the IP + subdomain, then §2–7 together.
+- Parked for later: show ≥50 / all matching films; results changing after the AI step feels like a bug (needs a UX fix); AWS serverless as a possible Phase 8.
+
 ## Next
 1. The user reviews the UI at `uvicorn moviemood.api.main:app --reload` → `/`.
 2. `/review-phase 6` (and 6.5), then commit, then Phase 7 deploy.

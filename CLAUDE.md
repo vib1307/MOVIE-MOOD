@@ -14,7 +14,7 @@ Semantic, mood-based movie discovery. Users describe a feeling in plain language
 - `src/moviemood/core/` is framework-free RAG logic. **It never imports FastAPI or Gradio.**
 - `src/moviemood/api/` is FastAPI (REST, `/api/v1/*`, Swagger at `/docs`).
 - `src/moviemood/ui/` is Gradio, mounted inside the FastAPI app at `/`. It calls `core` directly, not over HTTP.
-- One uvicorn process serves everything. Deploy target: Hetzner Cloud CAX31 (ARM, 16 GB) + nginx + Let's Encrypt on a DuckDNS subdomain, with Ollama on the same box. Runbook: `deploy/README.md` (D-028).
+- One uvicorn process serves everything. Deploy target: Oracle Cloud Always Free A1 VM (ARM, 2 OCPU / 12 GB, ₹0) + nginx + Let's Encrypt on a DuckDNS subdomain, with Ollama on the same box. Runbook: `deploy/README.md` (D-028, D-032).
 
 ```
 src/moviemood/
@@ -29,7 +29,7 @@ scripts/   fetch_movies.py build_index.py
 ## Progress
 - Full phase plan and checkpoints: `docs/PLAN.md`
 - Why things are the way they are: `docs/DECISIONS.md`
-- **Current phase: 7 (Deploy, Hetzner; see D-028 + `deploy/README.md`)**. Phases 6 (Gradio UI) and 6.5 (lazy ingestion, filters, qwen; D-023 to D-027) are done and committed. Crash-recovery notes: `docs/HANDOFF.md`. Phases 0–5 are done (API in `api/`, tests in `tests/`; checks: `scripts/try_blobs.py`, `scripts/try_recommend.py`). Update this line when a phase checkpoint passes.
+- **Current phase: 7 (Deploy, Oracle Always Free; see D-032 + `deploy/README.md`)**. Phases 6 (Gradio UI) and 6.5 (lazy ingestion, filters, qwen; D-023 to D-027) are done and committed. Crash-recovery notes: `docs/HANDOFF.md`. Phases 0–5 are done (API in `api/`, tests in `tests/`; checks: `scripts/try_blobs.py`, `scripts/try_recommend.py`). Update this line when a phase checkpoint passes.
 
 ## Commands
 - `source venv/bin/activate`

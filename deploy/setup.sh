@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# One-time (and re-runnable) server setup for MovieMood on Ubuntu 24.04 arm64 (Hetzner CAX31).
-# See deploy/README.md and D-028.
+# One-time (and re-runnable) server setup for MovieMood on Ubuntu 24.04 arm64
+# (Oracle Cloud Always Free A1: 2 OCPU / 12 GB; also works on Hetzner/other VMs).
+# See deploy/README.md, D-028 and D-032.
 #
 # Usage, as root, from the cloned repo:
 #   cd /opt/moviemood && sudo bash deploy/setup.sh moviemood.duckdns.org
@@ -21,9 +22,16 @@ say() { printf '\n\033[1;35m==> %s\033[0m\n' "$*"; }
 [[ $EUID -eq 0 ]] || { echo "run as root (sudo)"; exit 1; }
 [[ "$(pwd)" == "$APP_DIR" ]] || { echo "run from $APP_DIR (the cloned repo)"; exit 1; }
 
+say "Swap (4 GB safety net: qwen2.5:7b + nomic + app use ~8 of 12 GB)"
+if ! swapon --show | grep -q /swapfile; then
+    [[ -f /swapfile ]] || { fallocate -l 4G /swapfile && chmod 600 /swapfile && mkswap /swapfile; }
+    swapon /swapfile
+    grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
+
 say "System packages"
 apt-get update -q
-DEBIAN_FRONTEND=noninteractive apt-get install -y -q nginx certbot python3-certbot-nginx git curl rsync ufw goaccess  # goaccess: deploy/traffic.sh --report
+DEBIAN_FRONTEND=noninteractive apt-get install -y -q nginx certbot python3-certbot-nginx git curl rsync ufw goaccess netfilter-persistent  # goaccess: deploy/traffic.sh --report
 
 say "App user $APP_USER"
 id "$APP_USER" &>/dev/null || useradd --system --home "$APP_DIR" --shell /usr/sbin/nologin "$APP_USER"
@@ -67,10 +75,26 @@ if [[ -d /etc/letsencrypt/live/$DOMAIN ]]; then
     systemctl reload nginx
 fi
 
-say "Firewall (ufw): SSH + HTTP/HTTPS only"
-ufw allow OpenSSH
-ufw allow 'Nginx Full'
-ufw --force enable
+# Oracle's Ubuntu images ship their own iptables rules (only SSH open, then a REJECT)
+# saved by netfilter-persistent; ufw on top of them is known to break things. So on
+# Oracle, open 80/443 in those rules instead. Elsewhere (e.g. Hetzner) use ufw.
+if [[ -f /etc/iptables/rules.v4 ]] && iptables -S INPUT | grep -q -- "-j REJECT"; then
+    say "Firewall (Oracle iptables): allow HTTP/HTTPS"
+    for port in 80 443; do
+        if ! iptables -C INPUT -p tcp --dport "$port" -m state --state NEW -j ACCEPT 2>/dev/null; then
+            # insert just above the first REJECT, wherever it is
+            reject=$(iptables -L INPUT --line-numbers | awk '$2 == "REJECT" {print $1; exit}')
+            iptables -I INPUT "$reject" -p tcp --dport "$port" -m state --state NEW -j ACCEPT
+        fi
+    done
+    netfilter-persistent save
+    echo "Also open 80/443 in the VCN security list (Oracle console), see deploy/README.md."
+else
+    say "Firewall (ufw): SSH + HTTP/HTTPS only"
+    ufw allow OpenSSH
+    ufw allow 'Nginx Full'
+    ufw --force enable
+fi
 
 say "Status"
 missing=()

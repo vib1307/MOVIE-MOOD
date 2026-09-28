@@ -353,7 +353,7 @@ Latency is ~7–9s on the Mac.
 - **Host: Hetzner Cloud CAX31** (Arm64, 8 vCPU / 16 GB, ~€13/month, billed hourly).
   - Normal free tiers can't hold qwen2.5:7b + nomic + the app (~8 GB+): AWS t3.micro has 1 GB, Render 512 MB.
   - AWS t3.xlarge (the old PLAN target) is ~$120/month.
-  - Oracle Always Free (24 GB ARM, ₹0) and HF Spaces (₹0, 2 vCPU, sleeps, loses runtime data) were offered; the user chose Hetzner.
+  - Oracle Always Free and HF Spaces (₹0, 2 vCPU, sleeps, loses runtime data) were offered; the user chose Hetzner. **Correction (2026-09-27, checked against Oracle's docs):** Always Free A1 is now **2 OCPU / 12 GB** (1,500 OCPU-hours + 9,000 GB-hours a month), not the 4 / 24 GB quoted earlier.
 - **LLM: local qwen2.5:7b**, unchanged (D-026): no code change, no third party. Step 2 latency is to be measured on the box. The fallbacks are `LLM_MODEL=llama3.2`, or a later Groq mini-phase.
 - **URL: a DuckDNS subdomain + Let's Encrypt** (certbot --nginx, auto-renew), ₹0.
 - **Layout:** one VM running nginx (public, 80/443) → uvicorn on 127.0.0.1:8000 (**1 worker**: the Gradio queue and the lazy-ingest lock are per process) → Ollama on 127.0.0.1:11434 (`KEEP_ALIVE=24h`, `NUM_PARALLEL=1`). Hetzner firewall + ufw allow 22/80/443 only.
@@ -362,6 +362,11 @@ Latency is ~7–9s on the Mac.
 - **Data:** `movies.json`, `added_ids.json` and `data/cache/` are rsynced once, and the index is rebuilt on the box (Chroma files built on macOS aren't guaranteed portable). After go-live the server's catalog is the source of truth (lazy ingestion), so it is never overwritten from the laptop.
 - **`setup.sh` is re-runnable:** it re-installs certbot's HTTPS block if a cert exists. Otherwise a re-run would have overwritten the site file and silently dropped HTTPS.
 **Files:** `deploy/` (setup.sh, moviemood.service, ollama.override.conf, nginx-moviemood.conf, nginx-proxy-snippet.conf, README.md runbook), `requirements.lock`.
+**Update 2026-09-27 (server creation):**
+- **Hetzner charged $25 at verification.** Hetzner normally credits this to the account balance, which then pays future invoices (check Console → Billing). **Plan: use this $25 later** against the MovieMood server, so it isn't wasted.
+- **The Cost-Optimized (Arm64 CAX) category was disabled** for this account at Falkenstein. The only 16 GB option in Regular Performance is CPX42 at ~$82/month, which is too expensive.
+- The host decision is reopened (Oracle Always Free vs. a smaller Hetzner box); see HANDOFF.
+
 **Not yet verified:** nginx config (`nginx -t` runs in setup.sh; local Docker was off) and step-2 latency on CAX31. Fill these in after the first deploy.
 
 ---
@@ -396,6 +401,20 @@ Latency is ~7–9s on the Mac.
 - **Privacy:** query text is never logged (Gradio sends it in the request body, and nginx doesn't log bodies). IPs sit only in nginx logs, which Ubuntu's logrotate keeps ~14 days. That matters because the server is in the EU and IPs count as personal data.
 - **Later (when needed):** anonymous in-app events (top queries, chip clicks, "Why this pick" opens) + a privacy note.
 - **Verified:** `traffic.sh` on sample plain + gzipped logs gave the expected per-day counts.
+
+---
+
+## D-032 · Phase 7 · Host switched to Oracle Cloud Always Free (supersedes D-028's Hetzner choice)
+- **Why:** on Hetzner, "Cost-Optimized" (ARM CAX) was disabled for the new account, and the only 16 GB AMD box was ~$82/month. The user then chose Oracle Always Free.
+  - Oracle facts, checked on docs.oracle.com: A1 **2 OCPU / 12 GB**, 200 GB block storage, free for the account's life in the **home region**; the card is for verification only.
+  - AWS Lambda/S3 and HF Spaces were discussed. Lambda needs a UI rewrite + Bedrock (a possible later Phase 8). HF now needs PRO for Gradio/Docker Spaces.
+- **Kept:** local qwen2.5:7b (no code change), DuckDNS + Let's Encrypt, the same `deploy/` files. Memory budget: ~6 GB qwen + ~0.5 GB nomic + ~1 GB app of 12 GB, plus 4 GB swap from `setup.sh`.
+- **Oracle-specific changes:**
+  - The login user is `ubuntu`, so the README copies to `~` first, then `sudo mv`.
+  - Oracle's Ubuntu image has its own iptables rules (SSH + REJECT, saved by netfilter-persistent). `setup.sh` detects them and inserts ACCEPT 80/443 above the first REJECT instead of enabling ufw (ufw on top of them is known to break). 80/443 must also be opened in the VCN security list.
+- **Idle reclamation:** Oracle may reclaim a VM idle for 7 days (CPU **and** network **and** memory under 20%). qwen stays loaded (`OLLAMA_KEEP_ALIVE=24h`, ~50% of RAM), so it shouldn't count as idle.
+- **Expected speed:** step 2 on 2 OCPUs will be slow (maybe 1–2 min; to be measured). Fallbacks: `LLM_MODEL=llama3.2`, or a hosted LLM later.
+- **Hetzner:** no server was created. The **$25 paid at verification is kept for later use** (it should be account credit; confirm in Billing).
 
 ---
 
