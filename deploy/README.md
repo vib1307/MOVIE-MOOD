@@ -101,7 +101,7 @@ Renewal is automatic (`systemctl list-timers | grep certbot`).
 ## 7. Verify
 - `https://moviemood.duckdns.org/health` → 200. Also open `/docs` and `/`.
 - Try "dark and scary", "Brad Pitt" and "action movies with more 8.5 above imdb", and open a "Why this pick" panel.
-- Time step 2 ("Refining with AI…") on 3 queries and write the numbers in D-033.
+- Time the spinner (step 2, D-034) on 3 queries and write the numbers in D-033.
 - Rate limit: `for i in $(seq 10); do curl -s -o /dev/null -w "%{http_code}\n" -X POST https://moviemood.duckdns.org/api/v1/recommend -H 'Content-Type: application/json' -d '{"query":"cozy and light","rerank":false}'; done` should print some 429s.
 - `sudo reboot`, then `/health` is green again within ~1–2 min.
 - Hetzner console → server → **Snapshots → Take snapshot** (restore point; costs a few cents a month). Or enable **Backups** (+20% of the server price).
