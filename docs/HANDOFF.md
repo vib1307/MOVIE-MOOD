@@ -17,7 +17,7 @@ _Last updated: 2026-09-28_
 
 ## Current task: Phase 7 deploy on Hetzner CPX22 + OpenAI (D-033, 2026-09-28)
 - **Server created (D-035, 2026-09-30):** Hetzner **CX23**, Helsinki, `root@89.167.119.84`, Ubuntu 26.04.1. SSH key login works. Repo cloned to `/opt/moviemood` (§2 done). **LIVE: https://moviemood.duckdns.org** (2026-09-30). §3–7 done: setup.sh (26.04 fix), data rsync, `.env` by the user, index 3m17s (515 films), Let's Encrypt (auto-renew timer, expires 2026-12-29), rate limit OK. Step 2 ≈ 4.5s with OpenAI (logged in D-033).
-  Left: check the UI in a browser, reboot test, Hetzner snapshot, then mark Phase 7 done in CLAUDE.md.
+  Reboot test passed (green ~40s after reboot; all services, swap, ufw back). Left: user checks the UI in a browser + takes a Hetzner snapshot, then mark Phase 7 done in CLAUDE.md.
 - **Oracle is abandoned:** "Out of capacity" for A1, and the region has only one AD.
 - **Code done (not committed):**
   - `LLM_PROVIDER` switch in `core/llm.py`
