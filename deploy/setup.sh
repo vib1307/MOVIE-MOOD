@@ -33,7 +33,9 @@ fi
 
 say "System packages"
 apt-get update -q
-DEBIAN_FRONTEND=noninteractive apt-get install -y -q nginx certbot python3-certbot-nginx git curl rsync ufw goaccess netfilter-persistent  # goaccess: deploy/traffic.sh --report
+DEBIAN_FRONTEND=noninteractive apt-get install -y -q nginx certbot python3-certbot-nginx git curl rsync ufw goaccess  # goaccess: deploy/traffic.sh --report
+# Not netfilter-persistent here: on Ubuntu 26.04 ufw "Breaks" it, so apt refuses both (D-035).
+# Only the Oracle branch below needs it, and Oracle's image already ships it.
 
 say "App user $APP_USER"
 id "$APP_USER" &>/dev/null || useradd --system --home "$APP_DIR" --shell /usr/sbin/nologin "$APP_USER"
@@ -91,6 +93,7 @@ if [[ -f /etc/iptables/rules.v4 ]] && iptables -S INPUT | grep -q -- "-j REJECT"
             iptables -I INPUT "$reject" -p tcp --dport "$port" -m state --state NEW -j ACCEPT
         fi
     done
+    command -v netfilter-persistent &>/dev/null || DEBIAN_FRONTEND=noninteractive apt-get install -y -q netfilter-persistent
     netfilter-persistent save
     echo "Also open 80/443 in the VCN security list (Oracle console), see deploy/README.md."
 else

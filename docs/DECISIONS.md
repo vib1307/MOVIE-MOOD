@@ -482,6 +482,7 @@ Latency is ~7–9s on the Mac.
 **Why:** since D-033 the box only embeds queries (nomic, ~0.5 GB) and runs Chroma + uvicorn. The LLM is OpenAI. 4 GB RAM was the sizing number, and it is unchanged. The disk needs ~10 GB (OS, venv, nomic, index, data, 4 GB swap).
 **Trade-off:** `build_index.py` may take a few minutes longer, and the shared CPU can vary. Moving to CPX22 later is a Hetzner "Rescale" (same IP).
 **Note:** `setup.sh` installs its own Python 3.11 (uv), so 26.04's system Python doesn't matter. The rest (nginx, certbot, ufw, Ollama) is checked during this deploy.
+**26.04 fix:** `ufw` "Breaks" `netfilter-persistent` there, so apt refused the whole install (exit 100). `setup.sh` no longer installs `netfilter-persistent` by default; only the Oracle firewall branch installs it (if missing), and Oracle's image already has it.
 
 ---
 
