@@ -457,9 +457,12 @@ Latency is ~7–9s on the Mac.
 - The real Ollama path with k=10: "feel-good, no sad ending" gives 10 results in 43.6s (qwen judging 20 on the Mac). 5 fit (Happy New Year, Puss in Boots 2, Inside Out, Coco, Anyone but You) and 5 were demoted (Smile 2, Manchester by the Sea, …). `extract_intent("Brad Pitt")` gives the person.
 
 **Known limit:** with 10 slots, when fewer than 10 of the 20 judged films fit, the rest are shown as demoted ("may not fit"). Fix if needed: judge more (3*k), or drop demoted films from the grid.
-**Not yet verified:**
-- the OpenAI path with a real key (the user adds it to `.env`)
-- the step-2 latency on the server
+**Verified on the server (2026-09-30, CX23 Helsinki, D-035), timed from the laptop in India over HTTPS:**
+- Retrieval only (`rerank=false`): ~0.6s. With the OpenAI judge: **4.8–5.1s** ("cozy and light", "a good cry"); the first search after start took 8.3s.
+- So step 2 on the server is ~4.5s, not the ~2s measured on the laptop. The time is OpenAI writing 20 verdicts + whys, not the box (load 0.7, 2.7 GB RAM free).
+- Speed-ups if needed: a smaller model (`OPENAI_MODEL`), shorter whys, or judging fewer than 20.
+- Results look right: Pride & Prejudice for "cozy and light", Fury for "Brad Pitt", Gladiator (8.5) for "action movies with IMDb 8.5+".
+- nginx rate limit: 10 quick API calls → 2× 200, 8× 429.
 
 ---
 
