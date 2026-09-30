@@ -476,6 +476,15 @@ Latency is ~7–9s on the Mac.
 
 ---
 
+## D-035 · Phase 7 · Hetzner CX23 instead of CPX22 (same 4 GB, ~¼ the price)
+**Context:** "Cost-Optimized" x86 became available on the account (it was disabled before, see HANDOFF). The CX23 has the same 2 vCPU / 4 GB as the CPX22, 40 GB disk instead of 80, on older shared hardware, for $6.49/month instead of ~$23.
+**Decision:** CX23 in Helsinki (`89.167.119.84`), Ubuntu **26.04.1 LTS** (the console's default; the runbook said 24.04).
+**Why:** since D-033 the box only embeds queries (nomic, ~0.5 GB) and runs Chroma + uvicorn. The LLM is OpenAI. 4 GB RAM was the sizing number, and it is unchanged. The disk needs ~10 GB (OS, venv, nomic, index, data, 4 GB swap).
+**Trade-off:** `build_index.py` may take a few minutes longer, and the shared CPU can vary. Moving to CPX22 later is a Hetzner "Rescale" (same IP).
+**Note:** `setup.sh` installs its own Python 3.11 (uv), so 26.04's system Python doesn't matter. The rest (nginx, certbot, ufw, Ollama) is checked during this deploy.
+
+---
+
 ## Open questions
 - ~~**Recency skew**~~: resolved by D-010.
 - **Phase 2 ranking test (first run, 20 movies), `scripts/try_blobs.py`:**

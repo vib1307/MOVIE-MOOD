@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# One-time (and re-runnable) server setup for MovieMood on Ubuntu 24.04 (x86 or arm64).
-# Target: Hetzner CPX22 (2 vCPU / 4 GB) with the LLM on OpenAI; also works on Oracle.
+# One-time (and re-runnable) server setup for MovieMood on Ubuntu 24.04 or 26.04 (x86 or arm64).
+# Target: Hetzner CX23 (2 vCPU / 4 GB, D-035) with the LLM on OpenAI; also works on Oracle.
 # See deploy/README.md, D-028, D-032 and D-033.
 #
 # Usage, as root, from the cloned repo:

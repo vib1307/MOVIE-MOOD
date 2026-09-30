@@ -16,6 +16,7 @@ _Last updated: 2026-09-28_
 - Design source: `~/Desktop/Mood-Based Movie Recommendation App_files/Movie Mood.dc.html` (+ `styles.css`, `moods.js`).
 
 ## Current task: Phase 7 deploy on Hetzner CPX22 + OpenAI (D-033, 2026-09-28)
+- **Server created (D-035, 2026-09-30):** Hetzner **CX23**, Helsinki, `root@89.167.119.84`, Ubuntu 26.04.1. SSH key login works. Repo cloned to `/opt/moviemood` (§2 done). Next: DuckDNS subdomain → §3 `setup.sh`.
 - **Oracle is abandoned:** "Out of capacity" for A1, and the region has only one AD.
 - **Code done (not committed):**
   - `LLM_PROVIDER` switch in `core/llm.py`

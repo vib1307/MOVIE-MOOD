@@ -14,7 +14,7 @@ Semantic, mood-based movie discovery. Users describe a feeling in plain language
 - `src/moviemood/core/` is framework-free RAG logic. **It never imports FastAPI or Gradio.**
 - `src/moviemood/api/` is FastAPI (REST, `/api/v1/*`, Swagger at `/docs`).
 - `src/moviemood/ui/` is Gradio, mounted inside the FastAPI app at `/`. It calls `core` directly, not over HTTP.
-- One uvicorn process serves everything. Deploy target: Hetzner CPX22 (2 vCPU / 4 GB) + nginx + Let's Encrypt on a DuckDNS subdomain. Ollama on the same box serves only nomic embeddings; the LLM is OpenAI. Runbook: `deploy/README.md` (D-028, D-032, D-033).
+- One uvicorn process serves everything. Deploy target: Hetzner CX23 (2 vCPU / 4 GB, D-035) + nginx + Let's Encrypt on a DuckDNS subdomain. Ollama on the same box serves only nomic embeddings; the LLM is OpenAI. Runbook: `deploy/README.md` (D-028, D-032, D-033).
 
 ```
 src/moviemood/
@@ -29,7 +29,7 @@ scripts/   fetch_movies.py build_index.py
 ## Progress
 - Full phase plan and checkpoints: `docs/PLAN.md`
 - Why things are the way they are: `docs/DECISIONS.md`
-- **Current phase: 7 (Deploy, Hetzner CPX22 + OpenAI LLM; see D-033 + `deploy/README.md`)**. Phases 6 (Gradio UI) and 6.5 (lazy ingestion, filters, qwen; D-023 to D-027) are done and committed. Crash-recovery notes: `docs/HANDOFF.md`. Phases 0–5 are done (API in `api/`, tests in `tests/`; checks: `scripts/try_blobs.py`, `scripts/try_recommend.py`). Update this line when a phase checkpoint passes.
+- **Current phase: 7 (Deploy, Hetzner CX23 + OpenAI LLM; see D-033, D-035 + `deploy/README.md`)**. Phases 6 (Gradio UI) and 6.5 (lazy ingestion, filters, qwen; D-023 to D-027) are done and committed. Crash-recovery notes: `docs/HANDOFF.md`. Phases 0–5 are done (API in `api/`, tests in `tests/`; checks: `scripts/try_blobs.py`, `scripts/try_recommend.py`). Update this line when a phase checkpoint passes.
 
 ## Commands
 - `source venv/bin/activate`

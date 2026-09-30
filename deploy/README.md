@@ -1,6 +1,6 @@
-# Deploy runbook: Hetzner CPX22 + OpenAI LLM + DuckDNS + Let's Encrypt
+# Deploy runbook: Hetzner CX23 + OpenAI LLM + DuckDNS + Let's Encrypt
 
-Why this setup: D-028, D-032 and D-033 in `docs/DECISIONS.md`. The target is one **Hetzner CPX22** (2 vCPU AMD / 4 GB / 80 GB, ~$23/month). It runs:
+Why this setup: D-028, D-032, D-033 and D-035 in `docs/DECISIONS.md`. The target is one **Hetzner CX23** (2 vCPU / 4 GB / 40 GB, $6.49/month). It runs:
 - Ollama with **only `nomic-embed-text`** (embeddings, ~0.5 GB)
 - uvicorn (FastAPI + Gradio)
 - nginx with HTTPS
@@ -31,9 +31,9 @@ Files in this folder:
    - Create an API key (Dashboard → API keys). Keep it for step 4.
    - Set a **monthly budget** with email alerts (Settings → Limits). A few dollars is plenty. nginx also limits searches per IP.
 2. **Create the server.** <https://console.hetzner.cloud> → your project → **Add Server**:
-   - Location: any where **CPX22** is offered (e.g. Falkenstein, Nuremberg, Helsinki).
+   - Location: any where **CX23** is offered (ours: Helsinki).
    - Image: **Ubuntu 24.04**.
-   - Type: **Shared vCPU → x86 (AMD) → CPX22** (2 vCPU / 4 GB / 80 GB).
+   - Type: **Cost-Optimized → x86 (Intel/AMD) → CX23** (2 vCPU / 4 GB / 40 GB). CPX22 (Regular Performance, ~$23/month) also works.
    - Networking: **Public IPv4** ✅ and IPv6 ✅.
    - SSH keys: **Add SSH key** → paste the output of `pbcopy < ~/.ssh/id_ed25519.pub`.
    - Firewalls: **Create Firewall** → Inbound rules **TCP 22**, **TCP 80**, **TCP 443** (Any IPv4 + IPv6) → apply it to this server.
@@ -124,7 +124,7 @@ Renewal is automatic (`systemctl list-timers | grep certbot`).
 - If OpenAI fails (key, quota, outage), searches still work: step 2 falls back to plain retrieval order, and lazy ingest is skipped. Check `journalctl -u moviemood | grep "LLM judge failed"`.
 
 ## Cost
-- Hetzner CPX22: ~$23/month (the $25 paid at account verification should cover the first month; check Console → Billing).
+- Hetzner CX23: $6.49/month (the $25 paid at account verification should cover the first month; check Console → Billing).
 - OpenAI: a small model judging 20 films per search costs a fraction of a cent per search. The OpenAI budget from step 1 caps it.
 
 ## Other hosts
