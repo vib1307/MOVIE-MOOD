@@ -69,10 +69,10 @@ When every result is demoted, llama3.2 extracts `{person, title}`. TMDB search �
 
 ✅ "Brad Pitt" (not in the catalog) → step 3 adds his films and shows them; a repeat search is instant, with no step 3.
 
-### Phase 7 — Deploy (Hetzner CPX22 + OpenAI LLM, D-033; was Oracle, D-032)
+### Phase 7 — Deploy (Hetzner CX23 + OpenAI LLM, D-033, D-035; was Oracle, D-032) — ✅ done 2026-09-30
 uvicorn under systemd, nginx + certbot HTTPS on a DuckDNS subdomain, Ollama (nomic only) as its own systemd service (localhost only), LLM on OpenAI (`LLM_PROVIDER=openai`). Rsync data once, rebuild the index on the box. Runbook: `deploy/README.md`. Rate limits in nginx.
 
-✅ Public HTTPS URL: UI works, `/docs` reachable, `/health` green.
+✅ Public HTTPS URL: UI works, `/docs` reachable, `/health` green. **Passed 2026-09-30: https://moviemood.duckdns.org** (+ reboot test, rate limit, Hetzner snapshot).
 
 ### v2
 ~~Hybrid filters via Chroma `where` (runtime, rating, year)~~ done from query text (D-027); explicit API fields are still optional later; LLM/agent query → filters; `/api/v1/movies/{id}/similar`; caching.
@@ -83,4 +83,4 @@ uvicorn under systemd, nginx + certbot HTTPS on a DuckDNS subdomain, Ollama (nom
 3. POST the 5 brief queries via `/docs` — valid schema, 5 results each with `why`
 4. Same queries in Gradio at `/` match
 5. Stop Ollama → 503, not a 500
-6. Repeat 2–4 on the EC2 HTTPS URL
+6. Repeat 2–4 on the live HTTPS URL (https://moviemood.duckdns.org)

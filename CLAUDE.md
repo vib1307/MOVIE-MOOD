@@ -29,7 +29,7 @@ scripts/   fetch_movies.py build_index.py
 ## Progress
 - Full phase plan and checkpoints: `docs/PLAN.md`
 - Why things are the way they are: `docs/DECISIONS.md`
-- **Current phase: 7 (Deploy, Hetzner CX23 + OpenAI LLM; see D-033, D-035 + `deploy/README.md`)**. Phases 6 (Gradio UI) and 6.5 (lazy ingestion, filters, qwen; D-023 to D-027) are done and committed. Crash-recovery notes: `docs/HANDOFF.md`. Phases 0–5 are done (API in `api/`, tests in `tests/`; checks: `scripts/try_blobs.py`, `scripts/try_recommend.py`). Update this line when a phase checkpoint passes.
+- **Phases 0–7 are done. The app is live at https://moviemood.duckdns.org** (Hetzner CX23 + OpenAI LLM; D-033, D-035; runbook + Day-2 commands: `deploy/README.md`). Next: v2 in `docs/PLAN.md` (optional). Crash-recovery notes: `docs/HANDOFF.md`. Checks: `scripts/try_blobs.py`, `scripts/try_recommend.py`. Update this line when a phase checkpoint passes.
 
 ## Commands
 - `source venv/bin/activate`
