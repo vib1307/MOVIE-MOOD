@@ -13,6 +13,7 @@ from moviemood.api.schemas import (
     RecommendResponse,
 )
 from moviemood.config import get_settings
+from moviemood.core.availability import add_availability
 from moviemood.core.catalog import get_catalog
 from moviemood.core.recommender import recommend
 from moviemood.core.vectorstore import get_vectorstore
@@ -25,6 +26,7 @@ health_router = APIRouter(tags=["health"])
 def recommend_movies(req: RecommendRequest) -> RecommendResponse:
     """Movies matching a mood, each with a one-line "why this fits"."""
     recs = recommend(req.query, k=req.k, rerank=req.rerank)
+    add_availability(recs, req.region)  # cached lookup; a miss costs one TMDB call (D-036)
     return RecommendResponse(
         query=req.query, results=[MovieResult.from_recommendation(r) for r in recs]
     )

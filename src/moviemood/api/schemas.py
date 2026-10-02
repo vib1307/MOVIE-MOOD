@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from moviemood.core.availability import DEFAULT_REGION
 from moviemood.core.models import Movie, Recommendation, poster_url
 
 
@@ -14,6 +15,12 @@ class RecommendRequest(BaseModel):
     query: str = Field(min_length=3, max_length=300, examples=["feel-good, no sad ending"])
     k: int = Field(default=10, ge=1, le=20, description="how many movies to return")
     rerank: bool = Field(default=True, description="false = fast mode: retrieval only, no LLM (<1s)")
+    region: str = Field(
+        default=DEFAULT_REGION,
+        pattern="^[A-Za-z]{2}$",
+        description="ISO 3166-1 country for streaming availability, e.g. IN, US",
+        examples=["IN"],
+    )
 
 
 class MovieResult(BaseModel):
@@ -24,6 +31,8 @@ class MovieResult(BaseModel):
     poster_url: str | None
     imdb_rating: float | None
     why: str
+    # Subscription providers in the requested region; [] = not streaming there (D-036)
+    where_to_watch: list[str] | None = None
 
     @classmethod
     def from_recommendation(cls, rec: Recommendation) -> "MovieResult":

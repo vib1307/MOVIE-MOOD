@@ -20,10 +20,10 @@ Semantic, mood-based movie discovery. Users describe a feeling in plain language
 src/moviemood/
   config.py                       # pydantic-settings, reads .env
   ingest/  tmdb.py omdb.py
-  core/    models.py semantic_text.py vectorstore.py recommender.py catalog.py lazy_ingest.py explain.py llm.py filters.py
+  core/    models.py semantic_text.py vectorstore.py recommender.py catalog.py lazy_ingest.py explain.py llm.py filters.py availability.py
   api/     main.py routes.py schemas.py
   ui/      gradio_app.py
-scripts/   fetch_movies.py build_index.py
+scripts/   fetch_movies.py build_index.py fetch_providers.py
 ```
 
 ## Progress
@@ -35,6 +35,7 @@ scripts/   fetch_movies.py build_index.py
 - `source venv/bin/activate`
 - `python scripts/fetch_movies.py` (TMDB/OMDb → `data/movies.json`)
 - `python scripts/build_index.py` (embed → `chroma_db/`)
+- `python scripts/fetch_providers.py` (TMDB watch providers → `data/providers.json`; re-run weekly, D-036)
 - `uvicorn moviemood.api.main:app --reload` (UI at `/`, API docs at `/docs`)
 - `python -m pytest` (API tests, no Ollama needed)
 

@@ -2,9 +2,17 @@
 
 import html
 
+import pytest
+
 from moviemood.core.models import Recommendation
 from moviemood.ui import gradio_app
 from moviemood.ui.gradio_app import PLACEHOLDER_POSTER, render_cards
+
+
+@pytest.fixture(autouse=True)
+def no_provider_lookups(monkeypatch):
+    """Availability is TMDB's job (tested in test_availability.py); never call it here."""
+    monkeypatch.setattr(gradio_app, "add_availability", lambda recs, region=None: None)
 
 
 def rec(**overrides) -> Recommendation:
@@ -84,24 +92,25 @@ def test_ollama_down_replaces_loader_with_friendly_message(monkeypatch):
 
     monkeypatch.setattr(gradio_app, "recommend", broken)
     monkeypatch.setattr(gradio_app.gr, "Warning", lambda msg: None)
-    cards, misses = gradio_app.search_final("cozy feel-good")
+    cards, misses, shown = gradio_app.search_final("cozy feel-good")
     assert "isn&#x27;t available" in cards  # not gr.skip(): the loader would spin forever
-    assert misses is None
+    assert misses is None and shown is None
 
 
 def test_all_demoted_shows_no_match_note_and_hands_misses_to_step3(monkeypatch):
     demoted = [rec(source="demoted")] * 2
     monkeypatch.setattr(gradio_app, "recommend", lambda *a, **kw: demoted)
     monkeypatch.setattr(gradio_app, "explain", lambda q, recs: None)
-    cards, misses = gradio_app.search_final("Brad Pitt")
+    cards, misses, shown = gradio_app.search_final("Brad Pitt")
     assert "Nothing in our catalog" in cards and "Checking TMDB" in cards
     assert misses == demoted
+    assert shown == (demoted, gradio_app.SEARCHING_TMDB)  # so the region can be switched
 
 
 def test_some_fits_shows_no_note(monkeypatch):
     monkeypatch.setattr(gradio_app, "recommend", lambda *a, **kw: [rec(), rec(source="demoted")])
     monkeypatch.setattr(gradio_app, "explain", lambda q, recs: None)
-    cards, misses = gradio_app.search_final("romantic SRK")
+    cards, misses, _ = gradio_app.search_final("romantic SRK")
     assert "Nothing in our catalog" not in cards
     assert misses is None  # step 3 won't run
 
@@ -115,7 +124,7 @@ def test_step3_skips_when_something_fit(monkeypatch):
 
 def test_step3_nothing_new_shows_plain_no_match(monkeypatch):
     monkeypatch.setattr(gradio_app, "lazy_ingest", lambda q: [])
-    out = gradio_app.search_ingest("cozy", [rec(source="demoted")])
+    out, _ = gradio_app.search_ingest("cozy", [rec(source="demoted")])
     assert "Nothing in our catalog" in out and "Checking TMDB" not in out
 
 
@@ -124,7 +133,7 @@ def test_step3_new_movies_recommend_again(monkeypatch):
     monkeypatch.setattr(gradio_app, "lazy_ingest", lambda q: added)
     monkeypatch.setattr(gradio_app, "recommend", lambda *a, **kw: [rec(title="Fight Club")])
     monkeypatch.setattr(gradio_app, "explain", lambda q, recs: None)
-    out = gradio_app.search_ingest("Brad Pitt", [rec(source="demoted")])
+    out, _ = gradio_app.search_ingest("Brad Pitt", [rec(source="demoted")])
     assert "Added from TMDB: Fight Club" in out and "mm-card" in out
 
 
@@ -139,3 +148,42 @@ def test_filter_is_shown_in_note_panel_and_empty_state():
 def test_no_filter_no_filter_note():
     out = render_cards([rec()], "cozy and light")
     assert "Filtered" not in out and "Your filter" not in out
+
+
+# --- where to watch (D-036) -------------------------------------------------
+
+def test_watch_line_lists_providers_with_the_region():
+    out = render_cards([rec(where_to_watch=["Netflix", "JioHotstar"])], "cozy", region="IN")
+    assert "▶ Netflix, JioHotstar (India)" in out
+    assert "Streaming availability from JustWatch via TMDB." in out  # TMDB asks for the credit
+
+
+def test_watch_line_says_so_when_nothing_streams():
+    out = render_cards([rec(where_to_watch=[])], "cozy", region="US")
+    assert "Not on subscription in the US" in out  # not a blank gap
+    assert "mm-watch-none" in out
+
+
+def test_no_watch_line_when_availability_was_not_looked_up():
+    # where_to_watch=None (an API client that didn't ask): claim nothing.
+    out = render_cards([rec()], "cozy")
+    assert "mm-watch" not in out and "JustWatch" not in out
+
+
+def test_provider_names_are_escaped():
+    out = render_cards([rec(where_to_watch=["<b>Netflix</b>"])], "cozy")
+    assert "<b>Netflix</b>" not in out and "&lt;b&gt;Netflix&lt;/b&gt;" in out
+
+
+def test_switch_region_redraws_without_searching(monkeypatch):
+    monkeypatch.setattr(gradio_app, "recommend", lambda *a, **kw: pytest.fail("no new search"))
+    monkeypatch.setattr(gradio_app, "add_availability",
+                        lambda recs, region: [setattr(r, "where_to_watch", ["Hulu"]) for r in recs])
+    out = gradio_app.switch_region("cozy", "US", ([rec(where_to_watch=["Netflix"])], ""))
+    assert "▶ Hulu (the US)" in out and "Netflix" not in out
+
+
+def test_switch_region_keeps_the_note_and_skips_an_empty_screen():
+    out = gradio_app.switch_region("Brad Pitt", "IN", ([rec(where_to_watch=[])], gradio_app.NO_MATCH))
+    assert "Nothing in our catalog" in out
+    assert gradio_app.switch_region("cozy", "IN", None) is not None  # gr.skip(), not a crash

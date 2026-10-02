@@ -76,6 +76,7 @@ uvicorn under systemd, nginx + certbot HTTPS on a DuckDNS subdomain, Ollama (nom
 
 ### v2
 ~~Hybrid filters via Chroma `where` (runtime, rating, year)~~ done from query text (D-027); explicit API fields are still optional later; LLM/agent query → filters; `/api/v1/movies/{id}/similar`; caching.
+~~Where to watch (OTT per country)~~ done (D-036): `core/availability.py`, region dropdown, `scripts/fetch_providers.py`.
 
 ## End-to-end verification
 1. `python scripts/fetch_movies.py && python scripts/build_index.py`

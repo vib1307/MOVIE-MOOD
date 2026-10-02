@@ -54,6 +54,14 @@ class Settings(BaseSettings):
         return self.data_dir / "movies.json"
 
     @property
+    def providers_json(self) -> Path:
+        """Streaming availability per movie, per country (D-036).
+
+        Built by scripts/fetch_providers.py; a miss is fetched live at search time.
+        """
+        return self.data_dir / "providers.json"
+
+    @property
     def added_ids_json(self) -> Path:
         """TMDB ids added at runtime by lazy ingestion; fetch_movies.py keeps them (D-024)."""
         return self.data_dir / "added_ids.json"

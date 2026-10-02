@@ -24,6 +24,12 @@ DDLJ = Movie(
 )
 
 
+@pytest.fixture(autouse=True)
+def no_provider_lookups(monkeypatch):
+    """Availability would hit TMDB; it has its own tests (test_availability.py)."""
+    monkeypatch.setattr(routes, "add_availability", lambda recs, region: None)
+
+
 @pytest.fixture
 def client() -> TestClient:
     # raise_server_exceptions=False: let exception handlers turn errors into responses
@@ -55,6 +61,29 @@ def test_recommend_returns_api_shape(client, monkeypatch):
     assert "distance" not in result and "source" not in result  # internal fields stay internal
 
 
+def test_recommend_passes_region_and_returns_where_to_watch(client, monkeypatch):
+    seen = []
+    monkeypatch.setattr(routes, "recommend", fake_recommend)
+    monkeypatch.setattr(routes, "add_availability", lambda recs, region: seen.append(region) or [
+        setattr(r, "where_to_watch", ["Hulu"]) for r in recs
+    ])
+    resp = client.post("/api/v1/recommend", json={"query": "romantic SRK", "region": "us"})
+
+    assert resp.status_code == 200
+    assert seen == ["us"]  # availability.add_availability upper-cases it
+    assert resp.json()["results"][0]["where_to_watch"] == ["Hulu"]
+
+
+def test_recommend_defaults_to_india_and_omits_unknown_availability(client, monkeypatch):
+    seen = []
+    monkeypatch.setattr(routes, "recommend", fake_recommend)
+    monkeypatch.setattr(routes, "add_availability", lambda recs, region: seen.append(region))
+    resp = client.post("/api/v1/recommend", json={"query": "romantic SRK"})
+
+    assert seen == ["IN"]
+    assert resp.json()["results"][0]["where_to_watch"] is None  # looked up nothing: claim nothing
+
+
 def test_recommend_passes_k_and_rerank_through(client, monkeypatch):
     calls = []
     monkeypatch.setattr(routes, "recommend", lambda q, k, rerank: calls.append((q, k, rerank)) or [])
@@ -67,6 +96,8 @@ def test_recommend_passes_k_and_rerank_through(client, monkeypatch):
     {"query": "x" * 301},               # too long
     {"query": "cozy", "k": 0},
     {"query": "cozy", "k": 21},
+    {"query": "cozy", "region": "IND"},   # ISO 3166-1 alpha-2 only
+    {"query": "cozy", "region": "1"},
     {},                                 # missing query
 ])
 def test_recommend_rejects_bad_input(client, monkeypatch, body):

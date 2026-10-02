@@ -77,11 +77,12 @@ cp .env /tmp/server.env
 printf 'LLM_PROVIDER=openai\nOPENAI_API_KEY=sk-...your key...\n' >> /tmp/server.env
 # optional: OPENAI_MODEL=gpt-4.1-mini (the default in config.py)
 scp /tmp/server.env root@<IP>:/opt/moviemood/.env && rm /tmp/server.env
-rsync -avz data/movies.json data/added_ids.json data/cache root@<IP>:/opt/moviemood/data/
+rsync -avz data/movies.json data/added_ids.json data/providers.json data/cache root@<IP>:/opt/moviemood/data/
 ssh root@<IP> 'chown -R moviemood:moviemood /opt/moviemood && chmod 600 /opt/moviemood/.env'
 ```
 - The app refuses to start with `LLM_PROVIDER=openai` and no key (clear error in `journalctl -u moviemood`).
 - `data/cache/` (33 MB) holds the raw TMDB/OMDb responses, so the server never re-spends API quota on them.
+- `data/providers.json` (1 MB) is the streaming-availability cache (D-036). Copying it over is fine any time — unlike `movies.json` it holds no lazy-ingested state, and the server refills gaps itself.
 - **Only do this once.** After go-live, the server's `movies.json` grows on its own through lazy ingestion. Copying the laptop's file over it again would drop those films.
 
 ## 5. Build the index and start
@@ -116,6 +117,7 @@ Renewal is automatic (`systemctl list-timers | grep certbot`).
 | Ollama logs | `journalctl -u ollama -f` |
 | nginx logs | `sudo tail -f /var/log/nginx/access.log /var/log/nginx/error.log` |
 | Restart | `sudo systemctl restart moviemood` |
+| Refresh streaming availability (weekly) | `sudo -u moviemood .venv/bin/python scripts/fetch_providers.py` (~2 min; licences expire, so the OTT lines drift. `--all` refetches entries newer than 7 days too) |
 | Rebuild index (after a blob change) | `sudo -u moviemood .venv/bin/python scripts/build_index.py && sudo systemctl restart moviemood` |
 
 ## LLM provider

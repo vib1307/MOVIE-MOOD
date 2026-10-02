@@ -23,6 +23,7 @@ import httpx
 from ollama import ResponseError
 
 from moviemood.config import get_settings
+from moviemood.core.availability import DEFAULT_REGION, add_availability, region_name, regions
 from moviemood.core.explain import explain
 from moviemood.core.filters import describe, parse_filters
 from moviemood.core.lazy_ingest import lazy_ingest
@@ -33,7 +34,7 @@ LLM_CONCURRENCY = {"ollama": 1, "openai": 4}  # steps 2-3 running at once (D-033
 K = 10  # user: at least 10 films per search (D-033); the design's grid showed four
 MIN_QUERY = 3
 
-EXAMPLES = ["cozy and light", "dark and scary", "mind-bending", "a good cry", "pure adrenaline", "kuch halka sa"]
+EXAMPLES = ["cozy and light", "dark and scary", "mind-bending", "a good cry", "pure adrenaline", "kuch comedy"]
 # A mood (or a name) plus hard filters on rating / year / runtime (D-027); each one returns
 # films on the current catalog (checked when these were picked, D-030).
 FILTER_EXAMPLES = [
@@ -159,6 +160,17 @@ CSS = """
                           color: var(--mm-accent-300) !important; border: 1px dashed var(--mm-accent-600) !important; }
 #mm-filter-chips button:hover { background: color-mix(in srgb, var(--mm-accent) 12%, transparent) !important; }
 
+/* region picker: a chip-shaped dropdown, visible on both screens */
+#mm-region-row { max-width: 760px; }
+#mm-region { flex: 0 0 auto !important; width: 230px !important; min-width: 0 !important; padding: 0 !important; }
+#mm-region input { background: var(--mm-surface) !important; color: var(--mm-text) !important;
+                   border: none !important; box-shadow: var(--mm-shadow-sm) !important;
+                   border-radius: 999px !important; font-size: 13px !important; padding: 7px 14px !important; }
+#mm-region ul, #mm-region .options { background: var(--mm-surface) !important; color: var(--mm-text) !important;
+                   border: 1px solid var(--mm-n800) !important; border-radius: 10px !important; }
+#mm-region li:hover, #mm-region .item:hover, #mm-region .active {
+                   background: var(--mm-accent-900) !important; color: var(--mm-text) !important; }
+
 /* results */
 .mm-results-head { display: flex; align-items: baseline; gap: 16px; margin: 40px 0 8px; flex-wrap: wrap; }
 .mm-results-head h2 { margin: 0; font-weight: 500; font-size: 32px; letter-spacing: -0.02em; }
@@ -188,6 +200,9 @@ CSS = """
 .mm-title { margin: 0; font-weight: 500; font-size: 17px; line-height: 1.25; }
 .mm-meta { font-size: 12px; color: var(--mm-n500); }
 .mm-why { margin: 0; font-size: 14px; line-height: 1.5; color: var(--mm-n300); text-wrap: pretty; }
+.mm-watch { font-size: 12px; color: var(--mm-accent-300); }
+.mm-watch-none { color: var(--mm-n500); }
+.mm-credit { margin: 32px 0 0; font-size: 12px; color: var(--mm-n500); }
 .mm-more { font-size: 13px; color: var(--mm-accent-300); }
 .mm-more::after { content: "Why this pick  ↓"; }
 .mm-card[open] .mm-more::after { content: "Hide  ↑"; }
@@ -249,6 +264,21 @@ def _meta(r: Recommendation) -> str:
     return " · ".join(p for p in parts if p)
 
 
+def _watch_line(r: Recommendation, region: str) -> str:
+    """"▶ Netflix, JioHotstar (India)", or an honest empty state. See D-036.
+
+    where_to_watch is None when availability was never looked up (API clients that skip
+    it, tests): then the card shows no line at all rather than claiming anything.
+    """
+    if r.where_to_watch is None:
+        return ""
+    where = region_name(region)
+    if not r.where_to_watch:
+        return f"<span class='mm-watch mm-watch-none'>Not on subscription in {html.escape(where)}</span>"
+    names = ", ".join(r.where_to_watch)
+    return f"<span class='mm-watch'>▶ {html.escape(f'{names} ({where})')}</span>"
+
+
 def _why_panel(r: Recommendation, filter_label: str = "") -> str:
     """The "Why this pick" panel. Everything is escaped: titles and tags come from TMDB
     and the "why" from an LLM, so none of it can be trusted to be HTML-safe."""
@@ -272,6 +302,7 @@ def render_cards(
     query: str = "",
     note: str = "",
     empty: str = "No films found. Try describing the mood differently.",
+    region: str = DEFAULT_REGION,
 ) -> str:
     """The Suggestions screen: heading, note, and a card per film. Each card is a
     <details>, so a click opens its "Why this pick" panel with no JavaScript."""
@@ -304,12 +335,16 @@ def render_cards(
             "<div class='mm-info'>"
             f"<span class='mm-num'>{n:02d}</span>"
             f"<h3 class='mm-title'>{html.escape(r.title)}</h3>"
-            f"<span class='mm-meta'>{html.escape(_meta(r))}</span></div>"
+            f"<span class='mm-meta'>{html.escape(_meta(r))}</span>"
+            f"{_watch_line(r, region)}</div>"
             f"<p class='mm-why'>{html.escape(r.why)}</p>"
             "<span class='mm-more'></span>"
             f"</summary>{_why_panel(r, filter_label)}</details>"
         )
     parts.append(f"<div class='mm-grid'>{''.join(cards)}</div>")
+    if any(r.where_to_watch is not None for r in results):
+        # TMDB asks for JustWatch to be credited wherever this data is shown (D-036).
+        parts.append("<p class='mm-credit'>Streaming availability from JustWatch via TMDB.</p>")
     return "".join(parts)
 
 
@@ -336,46 +371,66 @@ def show_loader(query: str) -> str:
     return render_loader(query)
 
 
-def search_final(query: str):
-    """Step 2: retrieval + LLM judges + explains, replacing the loader.
+def search_final(query: str, region: str = DEFAULT_REGION):
+    """Step 2: retrieval + LLM judges + explains + where to watch, replacing the loader.
 
-    Returns (cards, misses). `misses` holds the results when nothing fits, which tells
-    step 3 to run; otherwise None.
+    Returns (cards, misses, shown). `misses` holds the results when nothing fits, which
+    tells step 3 to run; otherwise None. `shown` is (results, note), kept so changing the
+    region can redraw the same films without searching again.
     """
     query = (query or "").strip()
     if len(query) < MIN_QUERY:
-        return gr.skip(), None
+        return gr.skip(), None, gr.skip()
     try:
         results = recommend(query, k=K)
     except OLLAMA_ERRORS:
         # Not gr.skip(): that would leave the loader spinning forever.
         gr.Warning(UNAVAILABLE)
-        return render_cards([], empty=UNAVAILABLE), None
+        return render_cards([], empty=UNAVAILABLE), None, None
     explain(query, results)
+    add_availability(results, region)
     # Every movie judged a misfit (e.g. an actor we have no films of): say so honestly.
     if all_demoted(results):
-        return render_cards(results, query, note=SEARCHING_TMDB), results
-    return render_cards(results, query), None
+        return render_cards(results, query, note=SEARCHING_TMDB, region=region), results, (results, SEARCHING_TMDB)
+    return render_cards(results, query, region=region), None, (results, "")
 
 
-def search_ingest(query: str, misses: list[Recommendation] | None):
-    """Step 3: nothing fit, so try TMDB. New movies -> recommend again; none -> plain no-match."""
+def search_ingest(query: str, misses: list[Recommendation] | None, region: str = DEFAULT_REGION):
+    """Step 3: nothing fit, so try TMDB. New movies -> recommend again; none -> plain no-match.
+
+    Returns (cards, shown), like step 2.
+    """
     if not misses:
-        return gr.skip()
+        return gr.skip(), gr.skip()
     query = (query or "").strip()
     try:
         added = lazy_ingest(query)
         if not added:
-            return render_cards(misses, query, note=NO_MATCH)
+            return render_cards(misses, query, note=NO_MATCH, region=region), (misses, NO_MATCH)
         results = recommend(query, k=K)
     except OLLAMA_ERRORS:
         gr.Warning(UNAVAILABLE)
-        return render_cards(misses, query, note=NO_MATCH)
+        return render_cards(misses, query, note=NO_MATCH, region=region), (misses, NO_MATCH)
     explain(query, results)
+    add_availability(results, region)  # the new films aren't in the provider cache yet
     if all_demoted(results):
-        return render_cards(results, query, note=NO_MATCH)
+        return render_cards(results, query, note=NO_MATCH, region=region), (results, NO_MATCH)
     titles = ", ".join(m.title for m in added)
-    return render_cards(results, query, note=f"🆕 Added from TMDB: {titles}")
+    note = f"🆕 Added from TMDB: {titles}"
+    return render_cards(results, query, note=note, region=region), (results, note)
+
+
+def switch_region(query: str, region: str, shown):
+    """Redraw the films already on screen for another country. See D-036.
+
+    No retrieval, no LLM and (with a warm cache) no network: one watch/providers call
+    holds every country, so this is a dict lookup per film.
+    """
+    if not shown:
+        return gr.skip()
+    results, note = shown
+    add_availability(results, region)
+    return render_cards(results, (query or "").strip(), note=note, region=region)
 
 
 def build_ui() -> gr.Blocks:
@@ -395,6 +450,19 @@ def build_ui() -> gr.Blocks:
                 autofocus=True,
             )
             go = gr.Button("Find films", elem_id="mm-go", scale=0)
+        # The label sits above the picker, like the filter-chips label: a gr.Row stretches
+        # its children, so a label beside the picker pushes it to the far edge.
+        gr.HTML("<p class='mm-chips-label'>Streaming in</p>")
+        with gr.Row(elem_id="mm-region-row"):
+            region = gr.Dropdown(
+                choices=regions(),  # [("India", "IN"), ...]: label shown, code passed on
+                value=DEFAULT_REGION,
+                show_label=False,
+                container=False,
+                filterable=True,
+                elem_id="mm-region",
+                scale=0,
+            )
         with gr.Row(elem_id="mm-chips") as chip_row:
             chips = [gr.Button(text, size="sm", scale=0) for text in EXAMPLES]
         with gr.Column(visible=True) as filter_col:
@@ -403,6 +471,7 @@ def build_ui() -> gr.Blocks:
                 chips += [gr.Button(text, size="sm", scale=0) for text in FILTER_EXAMPLES]
         cards = gr.HTML("")
         misses = gr.State(None)  # step 2 -> step 3: the results when nothing fit
+        shown = gr.State(None)  # (results, note) on screen, so the region can be switched
 
         # The public API is FastAPI's /api/v1, so UI events are hidden from Gradio's API page.
         # "undocumented", not "private": with "private" the browser's own clicks stopped
@@ -423,9 +492,11 @@ def build_ui() -> gr.Blocks:
             # step 1 (no limit, instant) -> steps 2 and 3 (the shared "llm" queue)
             event.then(show_loader, query, cards, concurrency_limit=None,
                        show_progress="minimal", **private) \
-                 .then(search_final, query, [cards, misses], concurrency_limit=llm_limit, concurrency_id="llm",
+                 .then(search_final, [query, region], [cards, misses, shown],
+                       concurrency_limit=llm_limit, concurrency_id="llm",
                        show_progress="hidden", **private) \
-                 .then(search_ingest, [query, misses], cards, concurrency_limit=llm_limit, concurrency_id="llm",
+                 .then(search_ingest, [query, misses, region], [cards, shown],
+                       concurrency_limit=llm_limit, concurrency_id="llm",
                        show_progress="hidden", **private)
 
         screen = [query, hero, chip_row, filter_col]
@@ -434,4 +505,7 @@ def build_ui() -> gr.Blocks:
         for chip in chips:
             # A Button's value is its label, so the chip passes its own text as the input.
             wire(chip.click(to_results, chip, screen, queue=False, **private))
+        # Changing the country only redraws the cards: no queue, no LLM, no new search.
+        region.change(switch_region, [query, region, shown], cards, queue=False,
+                      show_progress="hidden", **private)
     return ui

@@ -489,6 +489,43 @@ Latency is ~7–9s on the Mac.
 
 ---
 
+## D-036 · v2 · Where to watch: TMDB watch providers, one region at a time
+**Problem:** a suggestion said *what* to watch and *why*, never *where*. TMDB already has it
+(`/movie/{id}/watch/providers`, JustWatch data), so this is a mapping job, not a new data source.
+**Decision:** `core/availability.py` fills `Recommendation.where_to_watch` with the **subscription**
+(`flatrate`) providers for one country, shown as one line on each card: `▶ Netflix, JioHotstar (India)`.
+A `gr.Dropdown` picks the country (default `IN`); the API takes `region` (default `IN`) and returns
+`where_to_watch`. No deep links to the services — provider names only, as text.
+- **One region, picked by hand, not geo-detected.** No GeoIP on the box and nginx passes no country
+  header; a dropdown is honest about what it's showing and works for a VPN user too.
+- **flatrate only.** "Included with your subscription" answers "can I watch this tonight?". Rent/buy
+  would raise coverage from 414/515 to ~all, but it's a different question. 402 of 495 films stream in
+  India, so the line is useful as is.
+- **One response holds every country (~130), so the cache keeps all of them.** Switching region is then
+  a dict lookup: `region.change` re-renders the same films with no retrieval, no LLM and no network
+  (`switch_region`). That's why the dropdown is cheap enough to exist at all.
+- **Prebuilt cache, not live per search.** Raw responses are 59 KB/movie (31 MB for the catalog);
+  trimmed to flatrate names it's **1.0 MB for 515 movies**, so `scripts/fetch_providers.py` writes
+  `data/providers.json` (62s for the catalog) and a search adds 0 ms. A miss — a film lazy ingestion
+  just added — is fetched live, capped at `MAX_LIVE=10` per search.
+- **`FETCH_THREADS = 2`, measured not guessed.** 10 calls: 2.6s serial, **1.6s with 2 threads**, but
+  7–15s with 4+ — TMDB resets the connections and `Retry`'s backoff (1s, 2s, 4s…) then dominates.
+- **`where_to_watch is None` means "not looked up"**, `[]` means "looked up, not streaming here".
+  Without that split, an API client that never asked would make every card claim "not available".
+- **`clean_names` cleans the raw list**, which is noisy: reseller entries ("HBO Max Amazon Channel",
+  and lowercase "ARD Plus Apple TV channel", hence `re.I`), ads tiers ("Netflix Standard with Ads"),
+  then the first 3 by `display_priority`. **With a fallback:** The Imitation Game in the US has two
+  providers and *both* are reseller channels, so filtering alone would have called a streaming film
+  unavailable — if the filters empty a non-empty list, name the service behind the first one
+  ("Britbox Apple TV channel" → "Britbox").
+- **JustWatch credit** under the grid: TMDB requires it wherever this data is shown.
+**Trade-off:** availability drifts as licences expire, so `providers.json` needs a weekly re-run
+(`deploy/README.md`). TTL is 7 days, which only matters for films fetched live.
+**Verified:** `pytest` 107 pass (14 new). Full catalog fetched: 515 entries, 1.0 MB, 414 stream in IN.
+Region switch redraws instantly with no TMDB traffic in the log.
+
+---
+
 ## Open questions
 - ~~**Recency skew**~~: resolved by D-010.
 - **Phase 2 ranking test (first run, 20 movies), `scripts/try_blobs.py`:**

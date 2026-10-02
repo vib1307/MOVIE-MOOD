@@ -46,3 +46,6 @@ class Recommendation(BaseModel):
     # "Why this pick" panel (core/explain.py, D-024); empty until explain() runs
     named: list[str] = Field(default_factory=list)  # e.g. ["Starring Brad Pitt"]
     mood_tags: list[str] = Field(default_factory=list)  # the movie's tags closest to the query
+    # Subscription providers in the region asked for (core/availability.py, D-036).
+    # None = not looked up (so the UI shows nothing); [] = looked up, not streaming there.
+    where_to_watch: list[str] | None = None

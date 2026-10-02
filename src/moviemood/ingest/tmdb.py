@@ -200,6 +200,19 @@ class TMDBClient:
         """TMDB's "if you liked this" list for a movie."""
         return self._get(f"/movie/{tmdb_id}/recommendations", language="en-US")["results"]
 
+    def watch_providers(self, tmdb_id: int) -> dict:
+        """Where the movie streams, per country (JustWatch data, D-036).
+
+        {"IN": {"link": ..., "flatrate": [{"provider_name": "Netflix", ...}], "buy": [...]},
+         "US": {...}, ...} - every country in one response, ~130 of them.
+        Not cached here: core/availability.py keeps its own trimmed cache.
+        """
+        return self._get(f"/movie/{tmdb_id}/watch/providers")["results"]
+
+    def watch_regions(self) -> list[dict]:
+        """[{"iso_3166_1": "IN", "english_name": "India", ...}, ...] for the region picker."""
+        return self._get("/watch/providers/regions", language="en-US")["results"]
+
 
 def _round_robin(lists: list[list[int]], exclude: set[int] = frozenset()) -> list[int]:
     """Take one id from each list in turn, skipping duplicates.
