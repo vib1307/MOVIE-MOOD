@@ -60,7 +60,9 @@ def clean_names(flatrate: list[dict]) -> list[str]:
 
     [{"provider_name": "Netflix", "display_priority": 0}, ...] -> ["Netflix"]
     """
-    names = [p["provider_name"] for p in sorted(flatrate, key=lambda p: p.get("display_priority", 999))]
+    # .strip(): TMDB ships names with stray whitespace ("ARD Plus Amazon channel "), which
+    # defeated the $ anchor in RESELLER and let reseller entries through.
+    names = [p["provider_name"].strip() for p in sorted(flatrate, key=lambda p: p.get("display_priority", 999))]
     keep = [n for n in names if not RESELLER.search(n)]
     # Drop "Netflix Standard with Ads" when plain "Netflix" is already there.
     plain = {n for n in keep if not ADS_TIER.search(n)}
@@ -70,7 +72,7 @@ def clean_names(flatrate: list[dict]) -> list[str]:
     # stream, so name the service behind the first one ("Britbox Apple TV channel" ->
     # "Britbox") rather than claiming it isn't available.
     if not keep and names:
-        keep = [RESELLER.sub("", names[0])]
+        keep = [RESELLER.sub("", names[0]).strip()]
     return keep[:MAX_PROVIDERS]
 
 

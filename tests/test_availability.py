@@ -58,6 +58,13 @@ def test_ads_tier_collapses_only_when_the_plain_name_is_there():
     assert clean_names(offers("Amazon Prime Video with Ads")) == ["Amazon Prime Video with Ads"]
 
 
+def test_whitespace_in_tmdb_names_is_stripped():
+    # TMDB really ships these: "ARD Plus Amazon channel " with a trailing space, which
+    # used to slip past the $ anchor in RESELLER.
+    assert clean_names(offers("Netflix", "ARD Plus Amazon channel ")) == ["Netflix"]
+    assert clean_names(offers(" AXN White Amazon Channel")) == ["AXN White"]
+
+
 def test_empty_and_duplicate_input():
     assert clean_names([]) == []
     assert clean_names(offers("Netflix", "Netflix")) == ["Netflix"]

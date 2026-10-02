@@ -517,7 +517,9 @@ A `gr.Dropdown` picks the country (default `IN`); the API takes `region` (defaul
   then the first 3 by `display_priority`. **With a fallback:** The Imitation Game in the US has two
   providers and *both* are reseller channels, so filtering alone would have called a streaming film
   unavailable — if the filters empty a non-empty list, name the service behind the first one
-  ("Britbox Apple TV channel" → "Britbox").
+  ("Britbox Apple TV channel" → "Britbox"). Names are `.strip()`ed first: TMDB ships some with
+  stray whitespace ("ARD Plus Amazon channel "), which defeated the `$` anchor. The cleanup runs
+  when a provider is **fetched**, not when it's read, so a rule change needs `fetch_providers.py --all`.
 - **JustWatch credit** under the grid: TMDB requires it wherever this data is shown.
 **Trade-off:** availability drifts as licences expire, so `providers.json` needs a weekly re-run
 (`deploy/README.md`). TTL is 7 days, which only matters for films fetched live.

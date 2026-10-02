@@ -10,6 +10,8 @@ requests at a time on purpose - TMDB resets the connection on a bigger pool, and
 retry backoff then makes it slower than going almost serially (D-036).
 
 Re-run it weekly: licences expire, so availability drifts.
+Provider names are cleaned when they are fetched, not when they are read, so after a
+change to clean_names() re-run with --all.
 """
 
 import argparse
